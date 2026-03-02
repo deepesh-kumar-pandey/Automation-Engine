@@ -34,11 +34,3 @@ Docker & Docker Compose
 C++ Compiler (GCC 13+ or Clang 16+)
 
 CMake (3.21+)
-
-Quick Start
-1.Clone the repository:
-git clone https://github.com/deepesh-kumar-pandey/automation-engine.git
-cd automation-engine
-
-2.Build and Start (Docker):
-docker-compose up --build
