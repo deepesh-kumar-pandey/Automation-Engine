@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutomationRoutine",
+  "type": "object",
+  "properties": {
+    "routine_id": { "type": "string" },
+    "name": { "type": "string" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "order": { "type": "integer" },
+          "type": { "type": "string", "enum": ["SHELL", "HTTP", "DOCKER"] },
+          "command": { "type": "string" },
+          "ignore_errors": { "type": "boolean", "default": false }
+        },
+        "required": ["order", "type", "command"]
+      }
+    }
+  },
+  "required": ["routine_id", "name", "steps"]
+}
