@@ -43,4 +43,4 @@ namespace AutomationEngine {
         virtual std::string getID() const = 0;
     };
 
-} 
+} // namespace AutomationEngine

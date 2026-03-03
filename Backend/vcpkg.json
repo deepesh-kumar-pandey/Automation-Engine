@@ -1,0 +1,10 @@
+{
+  "name": "automation-engine-backend",
+  "version": "0.1.0",
+  "dependencies": [
+    "nlohmann-json",
+    "cpr",
+    "drogon",
+    "gtest"
+  ]
+}
