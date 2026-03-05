@@ -12,6 +12,14 @@ using json = nlohmann::json;
 namespace AutomationEngine {
 
     /**
+     * @brief A simple struct to wrap the output of a task.
+     */
+    struct TaskResult {
+        bool success;
+        std::string message;
+    };
+
+    /**
      * @brief Represents the lifecycle states of a single automation task.
      */
     enum class TaskStatus { Pending, Running, Completed, Failed };
@@ -30,7 +38,7 @@ namespace AutomationEngine {
          * @param input A JSON object containing task-specific parameters.
          * @return A std::future containing the final status of the execution.
          */
-        virtual std::future<TaskStatus> execute(const json& input) = 0;
+        virtual std::future<TaskResult> execute(const json& input) = 0;
 
         /**
          * @brief Returns the human-readable name of the task type.
@@ -41,6 +49,19 @@ namespace AutomationEngine {
          * @brief Returns the unique instance identifier for this specific execution.
          */
         virtual std::string getID() const = 0;
+    };
+
+    /**
+     * @brief A concrete worker that executes shell commands.
+     */
+    class ShellTask : public Task {
+    private:
+        std::string id_;
+    public:
+        ShellTask() : id_("shell_task_" + std::to_string(std::rand())) {}
+        std::future<TaskResult> execute(const json& params) override;
+        std::string getName() const override { return "ShellTask"; }
+        std::string getID() const override { return id_; }
     };
 
 } // namespace AutomationEngine
