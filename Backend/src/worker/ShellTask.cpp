@@ -22,6 +22,8 @@ std::string run_command(const char* cmd) {
     return result;
 }
 
+namespace AutomationEngine {
+
 std::future<TaskResult> ShellTask::execute(const nlohmann::json& params) {
     // We run this asynchronously so the rest of the engine doesn't "freeze" 
     // while waiting for a long Linux command to finish.
@@ -38,3 +40,5 @@ std::future<TaskResult> ShellTask::execute(const nlohmann::json& params) {
         }
     });
 }
+
+} // namespace AutomationEngine
