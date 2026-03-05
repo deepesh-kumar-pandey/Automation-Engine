@@ -1,0 +1,3 @@
+/home/Automation_Engine/Backend/build/CMakeFiles/automation_backend.dir
+/home/Automation_Engine/Backend/build/CMakeFiles/edit_cache.dir
+/home/Automation_Engine/Backend/build/CMakeFiles/rebuild_cache.dir
