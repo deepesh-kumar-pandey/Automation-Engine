@@ -13,6 +13,7 @@ find_package(cpr CONFIG REQUIRED)
 add_executable(automation_backend 
     src/main.cpp 
     src/worker/ShellTask.cpp
+    src/worker/BlockIPTask.cpp
 )
 
 # 3. Tell CMake where to find your .hpp files
