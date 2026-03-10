@@ -81,12 +81,12 @@ clean: CMakeFiles/automation_backend.dir/clean
 CMakeFiles/automation_backend.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/Automation_Engine/Backend/build/CMakeFiles --progress-num=1,2,3 "Built target automation_backend"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/Automation_Engine/Backend/build/CMakeFiles --progress-num=1,2,3,4 "Built target automation_backend"
 .PHONY : CMakeFiles/automation_backend.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/automation_backend.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/Automation_Engine/Backend/build/CMakeFiles 3
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/Automation_Engine/Backend/build/CMakeFiles 4
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/automation_backend.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/Automation_Engine/Backend/build/CMakeFiles 0
 .PHONY : CMakeFiles/automation_backend.dir/rule

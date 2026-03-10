@@ -153,6 +153,30 @@ src/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/src/main.cpp.s
 .PHONY : src/main.cpp.s
 
+src/worker/BlockIPTask.o: src/worker/BlockIPTask.cpp.o
+.PHONY : src/worker/BlockIPTask.o
+
+# target to build an object file
+src/worker/BlockIPTask.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/src/worker/BlockIPTask.cpp.o
+.PHONY : src/worker/BlockIPTask.cpp.o
+
+src/worker/BlockIPTask.i: src/worker/BlockIPTask.cpp.i
+.PHONY : src/worker/BlockIPTask.i
+
+# target to preprocess a source file
+src/worker/BlockIPTask.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/src/worker/BlockIPTask.cpp.i
+.PHONY : src/worker/BlockIPTask.cpp.i
+
+src/worker/BlockIPTask.s: src/worker/BlockIPTask.cpp.s
+.PHONY : src/worker/BlockIPTask.s
+
+# target to generate assembly for a file
+src/worker/BlockIPTask.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/automation_backend.dir/build.make CMakeFiles/automation_backend.dir/src/worker/BlockIPTask.cpp.s
+.PHONY : src/worker/BlockIPTask.cpp.s
+
 src/worker/ShellTask.o: src/worker/ShellTask.cpp.o
 .PHONY : src/worker/ShellTask.o
 
@@ -189,6 +213,9 @@ help:
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"
+	@echo "... src/worker/BlockIPTask.o"
+	@echo "... src/worker/BlockIPTask.i"
+	@echo "... src/worker/BlockIPTask.s"
 	@echo "... src/worker/ShellTask.o"
 	@echo "... src/worker/ShellTask.i"
 	@echo "... src/worker/ShellTask.s"

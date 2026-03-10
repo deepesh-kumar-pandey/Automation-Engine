@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/automation_backend.dir/src/main.cpp.o"
   "CMakeFiles/automation_backend.dir/src/main.cpp.o.d"
+  "CMakeFiles/automation_backend.dir/src/worker/BlockIPTask.cpp.o"
+  "CMakeFiles/automation_backend.dir/src/worker/BlockIPTask.cpp.o.d"
   "CMakeFiles/automation_backend.dir/src/worker/ShellTask.cpp.o"
   "CMakeFiles/automation_backend.dir/src/worker/ShellTask.cpp.o.d"
   "automation_backend"
