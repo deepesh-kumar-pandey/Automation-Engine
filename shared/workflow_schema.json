@@ -11,11 +11,36 @@
         "type": "object",
         "properties": {
           "order": { "type": "integer" },
-          "type": { "type": "string", "enum": ["SHELL", "HTTP", "DOCKER"] },
+          "type": {
+            "type": "string",
+            "enum": ["SHELL", "HTTP", "DOCKER", "BLOCK_IP"]
+          },
           "command": { "type": "string" },
+          "ip": {
+            "type": "string",
+            "description": "Target IP address to block (required for BLOCK_IP tasks)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Human-readable reason for the IP block (optional, used in audit logs)."
+          },
           "ignore_errors": { "type": "boolean", "default": false }
         },
-        "required": ["order", "type", "command"]
+        "required": ["order", "type"],
+        "oneOf": [
+          {
+            "properties": {
+              "type": { "enum": ["SHELL", "HTTP", "DOCKER"] }
+            },
+            "required": ["command"]
+          },
+          {
+            "properties": {
+              "type": { "enum": ["BLOCK_IP"] }
+            },
+            "required": ["ip"]
+          }
+        ]
       }
     }
   },
