@@ -1,64 +1,54 @@
-/**
- * @file BlockIPTask.cpp
- * @brief Worker implementation for blocking malicious IPs via a Rate Limiter API.
- */
-
-#include "worker/ShellTask.hpp" // Contains the 'Task' interface
-#include <cpr/cpr.h> // High-level C++ HTTP library for cross-service communication
+#include "worker/BlockIPTask.hpp" // Changed to match your specific header
+#include "core/Logger.hpp"        // Added to use your new thread-safe logger
+#include <cpr/cpr.h>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <future>
 
-namespace AutomationEngine {
+using json = nlohmann::json;
+using namespace AutomationEngine;
+
+namespace engine { // Using the 'engine' namespace to match your Logger
 
 /**
- * @class BlockIPTask
- * @brief Handles security-based automation tasks defined in the workflow schema.
+ * @brief Executes the IP block request asynchronously.
+ * Aligned with the 'oneOf' schema requiring an "ip" and "reason".
  */
-class BlockIPTask : public Task {
-public:
-    /**
-     * @brief Constructor for the IP blocking task instance.
-     * @param task_id Unique identifier for tracking this specific execution in logs.
-     */
-    BlockIPTask(std::string task_id) : id_(task_id) {}
+std::future<TaskResult> BlockIPTask::execute(const json& input) {
+    // We use std::async to keep the engine responsive while waiting for the network
+    return std::async(std::launch::async, [this, input]() -> TaskResult {
+        
+        // 1. Extract data based on your new Schema
+        std::string ip = input.value("ip", "0.0.0.0");
+        std::string reason = input.value("reason", "No reason provided");
 
-    /**
-     * @brief Executes the IP block request asynchronously.
-     * @param input JSON data containing task parameters (expects an "ip" field).
-     * @return A std::future containing the final status of the task.
-     */
-    std::future<TaskResult> execute(const json& input) override {
-        // We use std::async with std::launch::async to prevent blocking the main 
-        // engine thread while waiting for the network response.
-        return std::async(std::launch::async, [this, input]() -> TaskResult {
-            // Retrieve the IP from the input JSON. Default to "0.0.0.0" for safety.
-            std::string ip = input.value("ip", "0.0.0.0");
-            
-            // Logic to call your specific Rate Limiter API service.
-            // We pass the target IP in a JSON body via an HTTP POST request.
-            auto response = cpr::Post(
-                cpr::Url{"http://rate-limiter:8081/block"},
-                cpr::Body{json({{"target_ip", ip}}).dump()},
-                cpr::Header{{"Content-Type", "application/json"}}
-            );
+        Logger::log("Initiating block for IP: " + ip, Logger::Level::SECURITY);
 
-            // 200 OK indicates the IP was successfully blocked.
-            if (response.status_code == 200) {
-                return TaskResult{true, "Successfully blocked IP"};
-            } else {
-                return TaskResult{false, "Failed to block IP"};
-            }
-        });
-    }
+        // 2. Network Handshake with Python Mock Service (Port 8081)
+        // Note: Use 'localhost' if running on the same WSL instance
+        auto response = cpr::Post(
+            cpr::Url{"http://localhost:8081/block"},
+            cpr::Body{json({
+                {"target_ip", ip}, 
+                {"reason", reason}
+            }).dump()},
+            cpr::Header{{"Content-Type", "application/json"}}
+        );
 
-    /** @brief Returns the human-readable type name for logging and schema matching. */
-    std::string getName() const override { return "BlockIPTask"; }
-    
-    /** @brief Returns the specific instance ID for this task execution. */
-    std::string getID() const override { return id_; }
+        // 3. Evaluate results and log to engine.log via our new Logger
+        if (response.status_code == 200) {
+            Logger::log("Successfully blocked IP: " + ip, Logger::Level::SUCCESS);
+            return TaskResult{true, "Block Confirmed"};
+        } else {
+            std::string errorMsg = "Failed to block IP. Service Status: " + std::to_string(response.status_code);
+            Logger::log(errorMsg, Logger::Level::ERROR);
+            return TaskResult{false, errorMsg};
+        }
+    });
+}
 
-private:
-    std::string id_; ///< Internal storage for the unique task ID.
-};
+// Metadata helpers for the Engine's Task Registry
+std::string BlockIPTask::getName() const { return "BLOCK_IP"; }
+std::string BlockIPTask::getID() const { return id_; }
 
-} // namespace AutomationEngine
+} // namespace engine
