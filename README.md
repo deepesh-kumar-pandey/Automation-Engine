@@ -52,22 +52,27 @@ Each worker:
 ```
 Automation_Engine/
 ├── Backend/
+│   ├── build/                       # CMake build artifacts
 │   ├── include/
-│   │   ├── worker/
-│   │   │   └── ShellTask.hpp        # Abstract Task interface + ShellTask declaration
-│   │   └── integration/
-│   │       └── RateLimitTask.cpp    # BlockIPTask: posts malicious IPs to rate-limiter
+│   │   ├── core/
+│   │   │   └── Logger.hpp           # Thread-safe logging with file persistence
+│   │   └── worker/
+│   │       ├── ShellTask.hpp        # Base Task interface
+│   │       └── BlockIPTask.hpp      # BlockIPTask header
 │   ├── src/
 │   │   ├── worker/
-│   │   │   └── ShellTask.cpp        # ShellTask implementation
-│   │   └── main.cpp                 # Engine entry point
+│   │   │   ├── ShellTask.cpp        # ShellTask implementation
+│   │   │   └── BlockIPTask.cpp      # BlockIPTask: posts to local Rate Limiter
+│   │   └── main.cpp                 # Engine entry point (reads routine.json)
 │   ├── CMakeLists.txt               # Backend build configuration
-│   ├── vcpkg.json                   # C++ dependency manifest
-│   └── Dockerfile                   # Container definition
-├── Frontend/                        # React dashboard
-├── shared/                          # Shared schemas (workflow_schema.json)
-├── data/                            # Runtime data / logs
-├── docs/                            # Documentation
+│   └── vcpkg.json                   # C++ dependency manifest
+├── services/
+│   ├── mock_rate_limiter.py         # Mock server for testing
+│   └── venv/                        # Python virtual environment
+├── shared/
+│   ├── workflow_schema.json         # JSON Schema for validation
+│   └── routine.json                 # THE execution routine
+├── data/                            # engine.log location
 └── CMakeLists.txt                   # Root build configuration
 ```
 
