@@ -1,0 +1,13 @@
+{
+  "routine": [
+    {
+      "task": "SHELL",
+      "command": "echo 'Hello from SHELL task!'"
+    },
+    {
+      "task": "BLOCK_IP",
+      "ip": "192.168.1.105",
+      "reason": "Suspicious activity detected"
+    }
+  ]
+}
