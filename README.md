@@ -12,7 +12,7 @@ A high-performance, asynchronous task orchestration system built with **C++26** 
 | **Polymorphic Workers**   | Extend via the abstract `Task` base class — any capability, any domain       |
 | **Security Integration**  | `BlockIPTask` talks directly to Rate Limiter services to block malicious IPs |
 | **Shell Automation**      | `ShellTask` executes arbitrary shell commands as part of a routine           |
-| **JSON-Driven Workflows** | Routines are defined in structured JSON for portability and version control  |
+| **JSON-Driven Workflows** | Routines are defined in `shared/routine.json` for easy execution             |
 | **React Dashboard**       | Frontend for managing routines and monitoring task status in real-time       |
 | **CMake + vcpkg**         | Modern C++ build system with automatic dependency management                 |
 | **Docker Ready**          | Fully containerised backend for easy deployment                              |
@@ -88,13 +88,36 @@ Automation_Engine/
 git clone https://github.com/deepesh-kumar-pandey/Automation-Engine.git
 cd Automation-Engine
 
-# Configure with CMake (vcpkg toolchain)
-cmake -B build -S Backend \
-  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-
-# Build
-cmake --build build
+# Configure and Build
+mkdir -p Backend/build && cd Backend/build
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
+make -j$(nproc)
 ```
+
+## 🚀 How to Run
+
+To execute the engine and verify the full automation pipeline, follow these steps:
+
+### 1. Start the Mock Rate Limiter (Terminal 1)
+The `BlockIPTask` requires a running service to communicate with.
+```bash
+cd services
+source venv/bin/activate
+python mock_rate_limiter.py
+```
+
+### 2. Run the Automation Backend (Terminal 2)
+The backend will read `shared/routine.json` and execute the tasks inside.
+```bash
+cd Backend/build
+./automation_backend
+```
+
+### 3. Verify Results
+- **Console**: Check the live logs for `[SECURITY]` and `[SUCCESS]` entries.
+- **Log File**: Open `data/engine.log` to see the persistent record.
+- **Mock Server**: The Python terminal will show incoming POST requests with status 200.
+
 
 ### Docker
 
