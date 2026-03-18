@@ -1,1 +1,4 @@
 Backend/vcpkg/
+services/venv/
+Backend/build/
+data/*.log
