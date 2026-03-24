@@ -107,8 +107,15 @@ make -j$(nproc)
 To execute the engine and verify the full automation pipeline, follow these steps:
 
 ### 1. Export the Encryption Key
-The engine requires a 256-bit (64 hex character) key to encrypt logs and sign network requests.
+The engine requires a 256-bit (64 hex character) key to encrypt logs and sign network requests. 
+
+> [!WARNING]
+> The key shown below is a **placeholder for local testing only**. Do not use it in production!
+> To generate a cryptographically secure key for your deployment, run:
+> `openssl rand -hex 32`
+
 ```bash
+# Example test key
 export ENGINE_LOG_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
