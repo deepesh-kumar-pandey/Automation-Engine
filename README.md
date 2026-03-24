@@ -10,7 +10,8 @@ A high-performance, asynchronous task orchestration system built with **C++26** 
 | ------------------------- | ---------------------------------------------------------------------------- |
 | **Async Core**            | Non-blocking task execution via `std::async` and `std::future`               |
 | **Polymorphic Workers**   | Extend via the abstract `Task` base class — any capability, any domain       |
-| **Security Integration**  | `BlockIPTask` talks directly to Rate Limiter services to block malicious IPs |
+| **Security Integration**  | `BlockIPTask` talks directly to Rate Limiter services to block malicious IPs, secured by **HMAC-SHA256** signatures |
+| **Encrypted Auditing**    | Logs are encrypted on disk with **AES-256-GCM** to detect tampering |
 | **Shell Automation**      | `ShellTask` executes arbitrary shell commands as part of a routine           |
 | **JSON-Driven Workflows** | Routines are defined in `shared/routine.json` for easy execution             |
 | **React Dashboard**       | Frontend for managing routines and monitoring task status in real-time       |
@@ -55,11 +56,13 @@ Automation_Engine/
 │   ├── build/                       # CMake build artifacts
 │   ├── include/
 │   │   ├── core/
-│   │   │   └── Logger.hpp           # Thread-safe logging with file persistence
+│   │   │   └── Logger.hpp           # Thread-safe logging with AES-256-GCM encryption
 │   │   └── worker/
 │   │       ├── ShellTask.hpp        # Base Task interface
 │   │       └── BlockIPTask.hpp      # BlockIPTask header
 │   ├── src/
+│   │   ├── tools/
+│   │   │   └── LogViewer.cpp        # Admin CLI to view encrypted engine.log
 │   │   ├── worker/
 │   │   │   ├── ShellTask.cpp        # ShellTask implementation
 │   │   │   └── BlockIPTask.cpp      # BlockIPTask: posts to local Rate Limiter
@@ -103,25 +106,37 @@ make -j$(nproc)
 
 To execute the engine and verify the full automation pipeline, follow these steps:
 
-### 1. Start the Mock Rate Limiter (Terminal 1)
+### 1. Export the Encryption Key
+The engine requires a 256-bit (64 hex character) key to encrypt logs and sign network requests.
+```bash
+export ENGINE_LOG_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+### 2. Start the Mock Rate Limiter (Terminal 1)
 The `BlockIPTask` requires a running service to communicate with.
 ```bash
 cd services
-source venv/bin/activate
 python mock_rate_limiter.py
 ```
 
-### 2. Run the Automation Backend (Terminal 2)
+### 3. Run the Automation Backend (Terminal 2)
 The backend will read `shared/routine.json` and execute the tasks inside.
 ```bash
 cd Backend/build
+export ENGINE_LOG_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ./automation_backend
 ```
 
-### 3. Verify Results
-- **Console**: Check the live logs for `[SECURITY]` and `[SUCCESS]` entries.
-- **Log File**: Open `data/engine.log` to see the persistent record.
+### 4. Verify Results
+- **Console**: Check the live logs for `[SECURITY]` and `[SUCCESS]` entries (printed in plaintext).
 - **Mock Server**: The Python terminal will show incoming POST requests with status 200.
+- **Log File**: Open `data/engine.log`. It will appear as binary garbage because it is encrypted with AES-256-GCM.
+- **Log Viewer**: To read the persistent encrypted log, use the LogViewer utility:
+  ```bash
+  cd Backend/build
+  export ENGINE_LOG_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  ./log_viewer
+  ```
 
 
 ### Docker
@@ -173,7 +188,9 @@ Integrates with a running Rate Limiter service to block malicious IPs:
 }
 ```
 
-Fires an HTTP `POST` to `http://rate-limiter:8081/block` with the target IP. Returns `Completed` on HTTP 200, `Failed` otherwise.
+Fires an HTTP `POST` to `http://localhost:8081/block` with the target IP. Returns `Completed` on HTTP 200, `Failed` otherwise.
+
+**Security:** The JSON payload is automatically signed using HMAC-SHA256 (via the `ENGINE_LOG_KEY`) and passed in the `X-Engine-Signature` HTTP header to prevent replay attacks and ensure authenticity.
 
 ---
 
@@ -185,6 +202,7 @@ Managed via **vcpkg** (`Backend/vcpkg.json`):
 | --------------- | -------------------------------------------------- |
 | `nlohmann-json` | JSON parsing for workflow schemas and task input   |
 | `cpr`           | High-level C++ HTTP client for service integration |
+| `openssl`       | Cryptography for AES-256-GCM logging & HMAC-SHA256 |
 
 ---
 
