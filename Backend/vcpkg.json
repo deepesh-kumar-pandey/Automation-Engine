@@ -5,6 +5,7 @@
     "nlohmann-json",
     "cpr",
     "drogon",
-    "gtest"
+    "gtest",
+    "openssl"
   ]
 }
