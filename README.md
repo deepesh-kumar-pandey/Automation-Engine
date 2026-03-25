@@ -10,6 +10,7 @@ A high-performance, asynchronous task orchestration system built with **C++26** 
 | ------------------------- | ---------------------------------------------------------------------------- |
 | **Async Core**            | Non-blocking task execution via `std::async` and `std::future`               |
 | **Polymorphic Workers**   | Extend via the abstract `Task` base class — any capability, any domain       |
+| **Threat Analyzer**       | C++ TCP server parses incoming requests for SQL injections & blocks bad IPs  |
 | **Security Integration**  | `BlockIPTask` talks directly to Rate Limiter services to block malicious IPs, secured by **HMAC-SHA256** signatures |
 | **Encrypted Auditing**    | Logs are encrypted on disk with **AES-256-GCM** to detect tampering |
 | **Shell Automation**      | `ShellTask` executes arbitrary shell commands as part of a routine           |
@@ -57,12 +58,16 @@ Automation_Engine/
 │   ├── include/
 │   │   ├── core/
 │   │   │   └── Logger.hpp           # Thread-safe logging with AES-256-GCM encryption
+│   │   ├── utils/
+│   │   │   └── Threatanalyzer.hpp   # ThreatAnalyzer header
 │   │   └── worker/
 │   │       ├── ShellTask.hpp        # Base Task interface
 │   │       └── BlockIPTask.hpp      # BlockIPTask header
 │   ├── src/
 │   │   ├── tools/
 │   │   │   └── LogViewer.cpp        # Admin CLI to view encrypted engine.log
+│   │   ├── utils/
+│   │   │   └── Threatanalyzer.cpp   # Detects malicious strings & triggers blocks
 │   │   ├── worker/
 │   │   │   ├── ShellTask.cpp        # ShellTask implementation
 │   │   │   └── BlockIPTask.cpp      # BlockIPTask: posts to local Rate Limiter
@@ -75,6 +80,8 @@ Automation_Engine/
 ├── shared/
 │   ├── workflow_schema.json         # JSON Schema for validation
 │   └── routine.json                 # THE execution routine
+├── test/
+│   └── attack_simulator.py          # Threat simulation script (TCP client)
 ├── data/                            # engine.log location
 └── CMakeLists.txt                   # Root build configuration
 ```
@@ -127,15 +134,22 @@ python mock_rate_limiter.py
 ```
 
 ### 3. Run the Automation Backend (Terminal 2)
-The backend will read `shared/routine.json` and execute the tasks inside.
+The backend will read `shared/routine.json` and then start a TCP Server on port `9090` listening for simulated threats.
 ```bash
 cd Backend/build
 export ENGINE_LOG_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ./automation_backend
 ```
 
-### 4. Verify Results
-- **Console**: Check the live logs for `[SECURITY]` and `[SUCCESS]` entries (printed in plaintext).
+### 4. Run the Attack Simulator (Terminal 3)
+In a third terminal, launch the Python script to send payloads to the C++ backend on port `9090`.
+```bash
+cd test
+python3 attack_simulator.py
+```
+
+### 5. Verify Results
+- **Console**: Check the live logs for `[SECURITY]` and `[SUCCESS]` entries when malicious strings are caught.
 - **Mock Server**: The Python terminal will show incoming POST requests with status 200.
 - **Log File**: Open `data/engine.log`. It will appear as binary garbage because it is encrypted with AES-256-GCM.
 - **Log Viewer**: To read the persistent encrypted log, use the LogViewer utility:
