@@ -15,6 +15,7 @@ add_executable(automation_backend
     src/main.cpp
     src/worker/ShellTask.cpp
     src/worker/BlockIPTask.cpp
+    src/utils/Threatanalyzer.cpp
 )
 
 # 3. Tell CMake where to find your .hpp files
