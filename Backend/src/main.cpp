@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <thread>
+#include <atomic>
 
 // Include tasks
 #include "worker/ShellTask.hpp"
@@ -85,6 +87,17 @@ void runTcpServer() {
 int main(int argc, char** argv) {
     engine::Logger::log("Automation Backend starting...", engine::Logger::Level::INFO);
     
+    // Start metric thread
+    std::thread([]() {
+        while (true) {
+            // Simulated metrics for now, or use /proc/stat if you want real ones
+            int cpu = rand() % 100;
+            int ram = rand() % 100;
+            engine::Logger::log("[METRIC] CPU: " + std::to_string(cpu) + "% | RAM: " + std::to_string(ram) + "%", engine::Logger::Level::INFO);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }).detach();
+
     // Read routine.json (optional run for existing tasks)
     std::ifstream file("../../shared/routine.json");
     if (file.is_open()) {
