@@ -1,0 +1,12 @@
+{
+  "name": "Timed Trigger",
+  "duration": 10,
+  "routine": [
+    {
+      "task": "SHELL",
+      "input": {
+        "command": "echo timed trigger"
+      }
+    }
+  ]
+}
