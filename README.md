@@ -23,20 +23,16 @@ A high-performance, asynchronous task orchestration system built with **C++26** 
 
 ## 🏗️ Architecture
 
-```
-Client (React Dashboard)
-        │
-        ▼
-  Automation Engine (C++26)
-        │
-   ┌────┴────┐
-   │  Task   │  ← Abstract Base (AutomationEngine::Task)
-   └────┬────┘
-        │
-   ┌────┴──────────────┐
-   │                   │
-ShellTask         BlockIPTask
-(Shell cmds)    (Rate Limiter API)
+```mermaid
+graph TD
+    Client["React Dashboard (Vite)"] --> Relay["Node.js Relay Service"]
+    Relay --> Backend["Automation Engine (C++)"]
+    
+    Backend --> Workers["Task Workers"]
+    Workers --> ST["ShellTask"]
+    Workers --> BT["BlockIPTask"]
+    
+    BT --> RL["Mock Rate Limiter (Python)"]
 ```
 
 Each worker:
@@ -55,35 +51,29 @@ Each worker:
 Automation_Engine/
 ├── Backend/
 │   ├── build/                       # CMake build artifacts
-│   ├── include/
-│   │   ├── core/
-│   │   │   └── Logger.hpp           # Thread-safe logging with AES-256-GCM encryption
-│   │   ├── utils/
-│   │   │   └── Threatanalyzer.hpp   # ThreatAnalyzer header
-│   │   └── worker/
-│   │       ├── ShellTask.hpp        # Base Task interface
-│   │       └── BlockIPTask.hpp      # BlockIPTask header
-│   ├── src/
-│   │   ├── tools/
-│   │   │   └── LogViewer.cpp        # Admin CLI to view encrypted engine.log
-│   │   ├── utils/
-│   │   │   └── Threatanalyzer.cpp   # Detects malicious strings & triggers blocks
-│   │   ├── worker/
-│   │   │   ├── ShellTask.cpp        # ShellTask implementation
-│   │   │   └── BlockIPTask.cpp      # BlockIPTask: posts to local Rate Limiter
-│   │   └── main.cpp                 # Engine entry point (reads routine.json)
+│   ├── include/                     # C++ Headers
+│   ├── src/                         # C++ Source
 │   ├── CMakeLists.txt               # Backend build configuration
-│   └── vcpkg.json                   # C++ dependency manifest
+│   ├── vcpkg.json                   # C++ dependency manifest
+│   └── Dockerfile                   # Alpine-based C++ build
+├── Frontend/
+│   ├── src/                         # React/TS source code
+│   ├── public/                      # Static assets
+│   ├── package.json                 # Frontend dependencies
+│   ├── vite.config.ts               # Vite configuration
+│   └── Dockerfile                   # Alpine-based React build
 ├── services/
+│   ├── relay/                       # Node.js message relay
 │   ├── mock_rate_limiter.py         # Mock server for testing
 │   └── venv/                        # Python virtual environment
 ├── shared/
 │   ├── workflow_schema.json         # JSON Schema for validation
-│   └── routine.json                 # THE execution routine
+│   ├── routine.json                 # THE execution routine
+│   └── custom_workflow.json         # Custom workflow data
 ├── test/
 │   └── attack_simulator.py          # Threat simulation script (TCP client)
 ├── data/                            # engine.log location
-└── CMakeLists.txt                   # Root build configuration
+└── .gitignore                       # Root ignore rules (node_modules, .env, etc)
 ```
 
 ---
@@ -160,12 +150,29 @@ python3 attack_simulator.py
   ```
 
 
-### Docker
+### Full Stack with Docker Compose (Recommended)
 
+To launch the entire stack (Backend, Frontend, and Relay), use the provided `docker-compose` if available, or build them individually:
+
+#### Backend
 ```bash
 cd Backend
-docker build -t automation-engine .
-docker run -p 8080:8080 automation-engine
+docker build -t automation-backend .
+docker run -p 8080:8080 -e ENGINE_LOG_KEY=your_key automation-backend
+```
+
+#### Frontend
+```bash
+cd Frontend
+docker build -t automation-frontend .
+docker run -p 80:80 automation-frontend
+```
+
+#### Relay Service
+```bash
+cd services/relay
+npm install
+node index.js
 ```
 
 ---
