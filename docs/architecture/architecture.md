@@ -1,5 +1,7 @@
 # System Architecture
 
+![Automation Engine Architecture](architecture.png)
+
 The Automation Engine is a distributed system designed for high-performance task orchestration and security threat analysis.
 
 ## 🏗️ High-Level Design
