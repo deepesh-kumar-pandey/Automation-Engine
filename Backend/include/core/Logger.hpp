@@ -164,7 +164,7 @@ public:
         uint8_t key[EncryptionManager::KEY_LEN];
         bool hasKey = EncryptionManager::loadKey(key);
 
-        static std::ofstream logFile("../../data/engine.log",
+        static std::ofstream logFile("data/engine.log",
                                      std::ios::app | std::ios::binary);
         if (!logFile.is_open()) return;
 
