@@ -50,8 +50,14 @@ void runTcpServer() {
         return;
     }
     
-    engine::Logger::log("Listening for threats on port 9090...", engine::Logger::Level::INFO);
+    engine::Logger::log("Listening for encrypted workflows on port 9090...", engine::Logger::Level::INFO);
     
+    uint8_t key[engine::EncryptionManager::KEY_LEN];
+    bool hasKey = engine::EncryptionManager::loadKey(key);
+    if (!hasKey) {
+        engine::Logger::log("CRITICAL: ENGINE_LOG_KEY missing, decryption will fail!", engine::Logger::Level::ERROR);
+    }
+
     while (true) {
         if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
             engine::Logger::log("Accept failed", engine::Logger::Level::ERROR);
@@ -61,23 +67,53 @@ void runTcpServer() {
         memset(buffer, 0, sizeof(buffer));
         int valread = read(new_socket, buffer, sizeof(buffer) - 1);
         if(valread > 0) {
-            std::string req(buffer);
-            try {
-                json j = json::parse(req);
-                std::string ip = j.value("ip", "unknown");
-                std::string payload = j.value("payload", "");
-                
-                if (engine::ThreatAnalyzer::isMalicious(payload)) {
-                    engine::Logger::log("CRITICAL: SQL INJECTION BLOCKED from " + ip, engine::Logger::Level::SECURITY);
-                    auto task = std::make_unique<engine::BlockIPTask>("threat_block");
-                    json block_input = {{"ip", ip}, {"reason", "Malicious payload detected"}};
-                    auto fut = task->execute(block_input);
-                    fut.get();
-                } else {
-                    engine::Logger::log("Payload from " + ip + " is safe.", engine::Logger::Level::INFO);
+            std::vector<uint8_t> blob(buffer, buffer + valread);
+            std::string decrypted;
+            
+            if (hasKey) {
+                decrypted = engine::EncryptionManager::decrypt(blob, key);
+            } else {
+                decrypted = std::string(buffer, valread); // Fallback to plaintext if no key
+            }
+
+            if (decrypted.empty()) {
+                engine::Logger::log("Decryption failed or tampering detected!", engine::Logger::Level::SECURITY);
+            } else {
+                try {
+                    json j = json::parse(decrypted);
+                    if (j.contains("routine") && j["routine"].is_array()) {
+                        engine::Logger::log("Executing workflow: " + j.value("name", "Unnamed"), engine::Logger::Level::INFO);
+                        for (const auto& step : j["routine"]) {
+                            std::string task_type = step.value("task", "UNKNOWN");
+                            std::unique_ptr<AutomationEngine::Task> pTask;
+                            if (task_type == "SHELL") {
+                                pTask = std::make_unique<AutomationEngine::ShellTask>();
+                            } else if (task_type == "BLOCK_IP") {
+                                pTask = std::make_unique<engine::BlockIPTask>("block_task");
+                            }
+                            if (pTask) {
+                                // Emit progress for UI
+                                engine::Logger::log("[PROGRESS] Initializing " + task_type, engine::Logger::Level::INFO);
+                                auto fut = pTask->execute(step);
+                                fut.get();
+                                engine::Logger::log("[PROGRESS] Completed " + task_type, engine::Logger::Level::SUCCESS);
+                            }
+                        }
+                    } else {
+                        // Compatibility with old threat analyzer payload
+                        std::string ip = j.value("ip", "unknown");
+                        std::string payload = j.value("payload", "");
+                        if (engine::ThreatAnalyzer::isMalicious(payload)) {
+                            engine::Logger::log("CRITICAL: SQL INJECTION BLOCKED from " + ip, engine::Logger::Level::SECURITY);
+                            auto task = std::make_unique<engine::BlockIPTask>("threat_block");
+                            json block_input = {{"ip", ip}, {"reason", "Malicious payload detected"}};
+                            auto fut = task->execute(block_input);
+                            fut.get();
+                        }
+                    }
+                } catch (const std::exception& e) {
+                     engine::Logger::log("Invalid JSON / Payload Error", engine::Logger::Level::WARN);
                 }
-            } catch (const std::exception& e) {
-                 engine::Logger::log("Invalid JSON from socket", engine::Logger::Level::WARN);
             }
         }
         close(new_socket);

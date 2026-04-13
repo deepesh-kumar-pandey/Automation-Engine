@@ -99,6 +99,24 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
 make -j$(nproc)
 ```
 
+## 📊 Performance Benchmarks
+
+The Node.js Relay service and the Automation Orchestrator socket ingestion have been benchmarked with `relay_benchmark.py` running in dual modes (Steady + Burst) to test the throughput capacity.
+
+Based on a **300,000 request** payload across 64 concurrent thread-pool workers, and 300,000 asynchronous burst payloads grouped in waves of 10,000 requests:
+
+| Metric | Steady (Sustained) | Burst (All-at-once) |
+| --- | --- | --- |
+| **Total Requests** | 300,000 | 300,000 |
+| **Success Rate** | 100.0% | 100.0% |
+| **Throughput (RPS)** | 1,258 req/s | 1,258 req/s |
+| **Avg Latency** | 50.58 ms | 193.56 ms |
+| **p95 Latency** | 94.24 ms | 508.39 ms |
+| **p99 Latency** | 128.97 ms | 731.01 ms |
+| **Errors** | 0 | 0 |
+
+---
+
 ## 🚀 How to Run
 
 To execute the engine and verify the full automation pipeline, follow these steps:
