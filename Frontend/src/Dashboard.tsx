@@ -1,21 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import {
-  Zap, Activity, Trash2, RefreshCw, Square,
-  Play, Pause, ChevronRight, Settings, Database, Terminal,
-  GitBranch, RotateCcw, X, Check, Lock, Unlock,
-  GripVertical, ArrowRight, Layers, Cpu, MemoryStick
+  Zap, Activity, Trash2, RefreshCw, Square, Check, Lock, Unlock,
+  Play, Pause, Settings, Database, Terminal, GitBranch, RotateCcw, X, Layers, Cpu, MemoryStick
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Label } from "@/components/ui/label";
 
@@ -23,11 +17,10 @@ import { Label } from "@/components/ui/label";
 
 interface Packet {
   id: string;
-  level: 'CRITICAL' | 'SUCCESS' | 'INFO' | 'WARN' | 'ERROR';
+  level: 'CRITICAL' | 'SUCCESS' | 'INFO' | 'WARN' | 'ERROR' | 'EXPLOIT';
   sourceIp: string;
   payload: string;
   timestamp: string;
-  raw?: string;
 }
 
 interface Vitals { cpu: number; ram: number; }
@@ -39,6 +32,8 @@ interface CanvasBlock {
   x: number;
   y: number;
   settings: BlockSettings;
+  color: string;
+  icon: any;
 }
 
 interface BlockSettings {
@@ -64,17 +59,16 @@ interface Workflow {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const RELAY = 'http://localhost:3001';
-
 const socket = io(RELAY);
 
-const MODULE_PALETTE: { type: CanvasBlock['type']; label: string; icon: typeof Zap; color: string }[] = [
-  { type: 'INIT_THREAD', label: 'Init Thread',  icon: Zap,        color: 'text-cyan-400 border-cyan-500/40' },
-  { type: 'SCAN_PORT',   label: 'Scan Port',    icon: Activity,   color: 'text-emerald-400 border-emerald-500/40' },
-  { type: 'RUN_SCRIPT',  label: 'Run Script',   icon: Terminal,   color: 'text-violet-400 border-violet-500/40' },
-  { type: 'LOOP',        label: 'Loop',         icon: RotateCcw,  color: 'text-amber-400 border-amber-500/40' },
-  { type: 'CONDITION',   label: 'Condition',    icon: GitBranch,  color: 'text-red-400 border-red-500/40' },
-  { type: 'SAVE_DB',     label: 'Save DB',      icon: Database,   color: 'text-sky-400 border-sky-500/40' },
-];
+const MODULE_PALETTE = [
+  { type: 'RUN_SCRIPT',  label: '>_ Custom SSH Command', icon: Terminal,   color: 'border-emerald-500/40 text-emerald-400' },
+  { type: 'INIT_THREAD', label: '◆ Python Script',      icon: Zap,        color: 'border-violet-500/40 text-violet-400' },
+  { type: 'SCAN_PORT',   label: '⚙ API Call',           icon: Activity,   color: 'border-amber-500/40 text-amber-400' },
+  { type: 'SAVE_DB',     label: '☷ Save DB',            icon: Database,   color: 'border-sky-500/40 text-sky-400' },
+  { type: 'LOOP',        label: '⟳ Loop Execution',     icon: RotateCcw,  color: 'border-amber-500/40 text-amber-400' },
+  { type: 'CONDITION',   label: '⑂ If Condition',      icon: GitBranch,  color: 'border-red-500/40 text-red-400' },
+] as const;
 
 const DEFAULT_SETTINGS: BlockSettings = {
   startDelay: 0, iterDelay: 500, maxDuration: 30, aesSecure: true,
@@ -82,22 +76,21 @@ const DEFAULT_SETTINGS: BlockSettings = {
 
 function mkBlock(type: CanvasBlock['type'], x: number, y: number): CanvasBlock {
   const def = MODULE_PALETTE.find(m => m.type === type)!;
-  return { id: Math.random().toString(36).slice(2, 8).toUpperCase(), type, label: def.label, x, y, settings: { ...DEFAULT_SETTINGS } };
+  return { id: Math.random().toString(36).slice(2, 8).toUpperCase(), type, label: def.label, x, y, settings: { ...DEFAULT_SETTINGS }, color: def.color, icon: def.icon };
 }
 
-// ─── Level colour helper ──────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function levelClass(level: Packet['level']) {
+function levelClass(level: string) {
   switch (level) {
     case 'CRITICAL': return 'bg-red-500/20 text-red-400 border border-red-500/30';
+    case 'EXPLOIT':  return 'bg-pink-500/20 text-pink-400 border border-pink-500/30';
     case 'SUCCESS':  return 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
     case 'WARN':     return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
     case 'ERROR':    return 'bg-orange-500/20 text-orange-400 border border-orange-500/30';
     default:         return 'bg-slate-800/60 text-slate-400 border border-slate-700/50';
   }
 }
-
-// ─── Radial gauge ─────────────────────────────────────────────────────────────
 
 function RadialGauge({ value, label, color, size = 70 }: { value: number; label: string; color: string; size?: number }) {
   const r = (size / 2) - 7, circ = 2 * Math.PI * r;
@@ -118,364 +111,344 @@ function RadialGauge({ value, label, color, size = 70 }: { value: number; label:
   );
 }
 
-// ─── Block Settings Modal ─────────────────────────────────────────────────────
+// ─── Settings Modal ───────────────────────────────────────────────────────────
 
-function BlockSettingsModal({ block, onClose, onSave }: {
-  block: CanvasBlock;
-  onClose: () => void;
-  onSave: (s: BlockSettings) => void;
-}) {
+function SettingsModal({ block, onClose, onSave }: { block: CanvasBlock; onClose: () => void; onSave: (s: BlockSettings) => void; }) {
   const [s, setS] = useState<BlockSettings>({ ...block.settings });
   const upd = (k: keyof BlockSettings, v: any) => setS(p => ({ ...p, [k]: v }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-      <div className="w-[420px] bg-[#0f172a] border border-slate-700 rounded-xl shadow-2xl shadow-black/60 font-mono">
-        {/* header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Settings size={14} className="text-emerald-400" />
-            <span className="text-[11px] font-bold text-white tracking-widest">ACTION SETTINGS — {block.label}</span>
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+      <div className="w-[480px] bg-[#020617] border border-slate-700/50 rounded shadow-[0_20px_50px_rgba(0,0,0,0.8)] p-6 font-mono text-slate-300">
+        <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
+            <Settings size={18} className="text-emerald-500" />
+            <span className="text-[12px] font-bold tracking-widest text-white uppercase">ACTION SETTINGS — {block.label.replace(/[^a-zA-Z ]/g, '')}</span>
           </div>
-          <button onClick={onClose} className="text-slate-600 hover:text-slate-300 transition-colors"><X size={16}/></button>
+          <button onClick={onClose} className="hover:text-white transition-colors"><X size={16}/></button>
         </div>
-        <div className="p-5 space-y-4">
-          {/* target / command */}
-          {(block.type === 'SCAN_PORT' || block.type === 'RUN_SCRIPT') && (
-            <div className="space-y-1">
-              <Label className="text-[9px] text-slate-500 tracking-widest">{block.type === 'SCAN_PORT' ? 'TARGET_IP / PORT_RANGE' : 'SCRIPT_COMMAND'}</Label>
-              <Input value={s.target ?? ''} onChange={e => upd('target', e.target.value)}
-                className="bg-black border-slate-800 h-8 text-[11px] text-slate-200" placeholder="e.g. 203.0.113.1:80" />
+
+        <div className="space-y-5">
+          {/* AES Toggle */}
+          <div className="flex items-center justify-between p-4 rounded bg-[#0f172a] border border-slate-800">
+            <div className="flex items-center gap-3">
+              <Lock size={16} className={s.aesSecure ? "text-emerald-500" : "text-slate-500"} />
+              <div>
+                <div className="text-[11px] font-bold text-white tracking-widest leading-none">AES-256 SECURE</div>
+                <div className="text-[9px] text-slate-500 mt-1.5 leading-none">Encrypts parameters before workflow dispatch</div>
+              </div>
             </div>
-          )}
-          {/* AES toggle */}
-          <div className="flex items-center justify-between p-3 rounded-lg bg-black/40 border border-slate-800">
-            <div className="flex items-center gap-2">
-              {s.aesSecure ? <Lock size={13} className="text-emerald-400" /> : <Unlock size={13} className="text-slate-500" />}
-              <span className="text-[10px] text-slate-300 font-bold">AES-256 SECURE</span>
-              <span className="text-[8px] text-slate-600">Encrypts params before dispatch</span>
-            </div>
-            <button onClick={() => upd('aesSecure', !s.aesSecure)}
-              className={`w-10 h-5 rounded-full relative transition-colors ${s.aesSecure ? 'bg-emerald-600' : 'bg-slate-700'}`}>
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${s.aesSecure ? 'left-5' : 'left-0.5'}`} />
+            <button onClick={() => upd('aesSecure', !s.aesSecure)} className={`w-12 h-6 rounded-full relative transition-colors ${s.aesSecure ? 'bg-emerald-600' : 'bg-slate-700'}`}>
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all shadow ${s.aesSecure ? 'left-7' : 'left-1'}`} />
             </button>
           </div>
-          {/* timers */}
-          <div className="grid grid-cols-3 gap-3">
+
+          {/* Payload / Target */}
+          {(block.type === 'RUN_SCRIPT' || block.type === 'SCAN_PORT') && (
+             <div className="space-y-2">
+               <Label className="text-[10px] text-slate-400 tracking-widest font-bold">PAYLOAD / TARGET SCRIPT</Label>
+               <Input value={s.target || ''} onChange={e => upd('target', e.target.value)}
+                 className="bg-[#0f172a] border-slate-800 h-10 text-[12px] text-emerald-400 font-mono focus-visible:ring-emerald-500/30" placeholder="e.g. ./deploy.sh or 192.168.1.1" />
+             </div>
+          )}
+
+          {/* Precision Timers */}
+          <div className="grid grid-cols-3 gap-4 border-t border-slate-800/80 pt-5 mt-2">
             {[
-              { key: 'startDelay',   label: 'START DELAY',       unit: 'ms'  },
-              { key: 'iterDelay',    label: 'ITERATION DELAY',   unit: 'ms'  },
-              { key: 'maxDuration',  label: 'MAX DURATION (TTL)',  unit: 's'  },
-            ].map(({ key, label, unit }) => (
-              <div key={key} className="space-y-1">
-                <Label className="text-[8px] text-slate-500 tracking-widest">{label}</Label>
-                <div className="flex items-center gap-1">
-                  <Input type="number" value={(s as any)[key]}
-                    onChange={e => upd(key as keyof BlockSettings, parseInt(e.target.value) || 0)}
-                    className="bg-black border-slate-800 h-8 text-[11px] text-slate-200 w-full" />
-                  <span className="text-[9px] text-slate-600">{unit}</span>
+              { key: 'startDelay', label: 'START DELAY', unit: 'ms' },
+              { key: 'iterDelay', label: 'ITER DELAY', unit: 'ms' },
+              { key: 'maxDuration', label: 'MAX TIME TTL', unit: 's' }
+            ].map(t => (
+              <div key={t.key} className="space-y-2">
+                <Label className="text-[9px] text-slate-400 tracking-widest font-bold uppercase">{t.label}</Label>
+                <div className="flex border border-slate-700 bg-[#0a0f1c] rounded overflow-hidden shadow-inner">
+                  <Input type="number" value={(s as any)[t.key]} onChange={e => upd(t.key as any, parseInt(e.target.value)||0)}
+                    className="border-0 bg-transparent h-9 text-[13px] text-white w-full text-right focus-visible:ring-0 font-mono" />
+                  <span className="flex items-center px-2.5 text-[9px] bg-slate-900 border-l border-slate-800 text-slate-500 font-bold">{t.unit}</span>
                 </div>
               </div>
             ))}
           </div>
-          {/* dynamic var injector */}
-          <div className="space-y-2 p-3 rounded-lg bg-black/40 border border-slate-800">
-            <Label className="text-[9px] text-slate-400 tracking-widest font-bold">DYNAMIC VARIABLE INJECTOR</Label>
-            <Select value={s.dynamicVar ?? 'none'} onValueChange={v => upd('dynamicVar', v)}>
-              <SelectTrigger className="bg-black border-slate-700 h-8 text-[10px]"><SelectValue /></SelectTrigger>
-              <SelectContent className="bg-[#0f172a] border-slate-700">
-                <SelectItem value="none">— No Dynamic Var —</SelectItem>
-                <SelectItem value="TARGET_IP">TARGET_IP</SelectItem>
-                <SelectItem value="ACCESS_CREDS">ACCESS_CREDS</SelectItem>
-                <SelectItem value="PRIORITY">PRIORITY</SelectItem>
-              </SelectContent>
-            </Select>
-            {s.dynamicVar && s.dynamicVar !== 'none' && (
-              <Input placeholder={`Value for ${s.dynamicVar}`} value={s.varValue ?? ''}
-                onChange={e => upd('varValue', e.target.value)}
-                className="bg-black border-slate-800 h-8 text-[11px] text-slate-200" />
-            )}
+          
+          <div className="pt-4 flex justify-end gap-3 border-t border-slate-800/50">
+            <Button variant="outline" onClick={onClose} className="h-9 px-6 text-[10px] border-slate-700 hover:bg-slate-800 rounded font-bold tracking-widest transition-colors">CANCEL</Button>
+            <Button onClick={() => onSave(s)} className="h-9 px-6 text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white rounded font-black tracking-widest transition-colors shadow-[0_0_15px_rgba(16,185,129,0.2)]">SAVE CONFIG</Button>
           </div>
-          {/* wait/timeout row */}
-          <div className="p-3 rounded-lg bg-black/40 border border-slate-800 space-y-2">
-            <Label className="text-[9px] text-slate-500 tracking-widest">WAIT FOR RESULT BEFORE NEXT ACTION</Label>
-            <div className="flex items-center gap-2 text-[10px] text-slate-400">
-              <Input type="number" defaultValue={200} className="bg-black border-slate-700 h-7 w-20 text-[10px]" />
-              <span>ms, Timeout:</span>
-              <Input type="number" defaultValue={5000} className="bg-black border-slate-700 h-7 w-20 text-[10px]" />
-              <span>ms</span>
-            </div>
-          </div>
-        </div>
-        <div className="px-5 pb-5 flex justify-end gap-3">
-          <Button variant="ghost" onClick={onClose} className="h-8 text-[10px] border border-slate-700 hover:bg-slate-800">CANCEL</Button>
-          <Button onClick={() => { onSave(s); onClose(); }}
-            className="h-8 text-[10px] bg-emerald-600 hover:bg-emerald-500 font-bold tracking-widest">
-            <Check size={12} className="mr-1" /> APPLY
-          </Button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Blueprint Canvas Tab ─────────────────────────────────────────────────────
+// ─── Blueprint Creation Tab ───────────────────────────────────────────────────
 
 function BlueprintTab({ fetchWorkflows }: { fetchWorkflows: () => void }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [blocks, setBlocks] = useState<CanvasBlock[]>([]);
-  const [editingBlock, setEditingBlock] = useState<CanvasBlock | null>(null);
-  const [dragging, setDragging] = useState<{ id: string; ox: number; oy: number } | null>(null);
-  const [workflowName, setWorkflowName] = useState('New Automation Routine');
-  const [saving, setSaving] = useState(false);
-
-  const dropBlock = (type: CanvasBlock['type'], e: React.DragEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left - 60;
-    const y = e.clientY - rect.top - 20;
-    setBlocks(p => [...p, mkBlock(type, x, y)]);
-  };
-
-  const onBlockMouseDown = (id: string, e: React.MouseEvent) => {
-    const b = blocks.find(b => b.id === id)!;
-    setDragging({ id, ox: e.clientX - b.x, oy: e.clientY - b.y });
-    e.preventDefault();
-  };
-
-  const onMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragging) return;
-    setBlocks(p => p.map(b => b.id === dragging.id
-      ? { ...b, x: e.clientX - dragging.ox, y: e.clientY - dragging.oy }
-      : b));
-  }, [dragging]);
-
-  const onMouseUp = useCallback(() => setDragging(null), []);
+  const [settingsModal, setSettingsModal] = useState<string | null>(null);
+  const [selectedSchema, setSelectedSchema] = useState<string>('Sec Audit v3.json');
+  const [securedScript, setSecuredScript] = useState('target_server_deploy.sh');
+  const [aesEnabled, setAesEnabled] = useState(true);
 
   useEffect(() => {
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-    return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); };
-  }, [onMouseMove, onMouseUp]);
+    const handleEdit = (e: Event) => {
+      const w = (e as CustomEvent).detail as Workflow;
+      setSelectedSchema(w.name);
+      setBlocks([mkBlock('INIT_THREAD', 80, 150), mkBlock('RUN_SCRIPT', 350, 150)]);
+    };
+    window.addEventListener('edit-workflow', handleEdit);
+    return () => window.removeEventListener('edit-workflow', handleEdit);
+  }, []);
 
-  const saveBlock = (id: string, s: BlockSettings) =>
-    setBlocks(p => p.map(b => b.id === id ? { ...b, settings: s } : b));
-
-  const removeBlock = (id: string) => setBlocks(p => p.filter(b => b.id !== id));
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await fetch(`${RELAY}/api/save-workflow`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: workflowName, schema: 'blueprint', routine: blocks.map(b => ({ task: b.type, settings: b.settings })) }),
-      });
-      fetchWorkflows();
-    } finally { setSaving(false); }
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!canvasRef.current) return;
+    const type = e.dataTransfer.getData('type') as CanvasBlock['type'];
+    if (!type) {
+      const id = e.dataTransfer.getData('id');
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left - 75;
+      const y = e.clientY - rect.top - 20;
+      setBlocks(b => b.map(bl => bl.id === id ? { ...bl, x, y } : bl));
+      return;
+    }
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left - 75;
+    const y = e.clientY - rect.top - 20;
+    setBlocks(b => [...b, mkBlock(type, x, y)]);
   };
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Module Palette */}
-      <aside className="w-44 border-r border-slate-800 bg-black/30 flex flex-col">
-        <div className="px-4 py-3 border-b border-slate-800">
-          <span className="text-[9px] text-slate-500 font-bold tracking-widest">MODULE_PALETTE</span>
+    <div className="flex-1 flex h-full relative overflow-hidden bg-[#020617]">
+      {/* Palette */}
+      <div className="w-[280px] bg-[#050914] border-r border-slate-800 flex flex-col z-10 shadow-[10px_0_30px_#00000080]">
+        <div className="px-5 py-4 border-b border-slate-800">
+          <span className="text-[11px] text-slate-500 tracking-widest font-black uppercase">MODULE_PALETTE</span>
         </div>
-        <div className="p-3 space-y-2 flex-1">
-          {MODULE_PALETTE.map(mod => {
-            const Icon = mod.icon;
-            return (
-              <div key={mod.type}
-                draggable
-                onDragStart={e => e.dataTransfer.setData('blockType', mod.type)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-black/40 cursor-grab active:cursor-grabbing text-[10px] font-bold hover:bg-slate-800/60 transition-all select-none ${mod.color}`}>
-                <GripVertical size={10} className="text-slate-600" />
-                <Icon size={12} />
-                {mod.label}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Canvas */}
-      <div className="flex-1 flex flex-col">
-        {/* canvas toolbar */}
-        <div className="h-12 border-b border-slate-800 flex items-center px-6 gap-4 bg-black/20">
-          <span className="text-[10px] text-slate-500 tracking-widest font-bold">BLUEPRINT_CANVAS</span>
-          <div className="flex-1">
-            <Input value={workflowName} onChange={e => setWorkflowName(e.target.value)}
-              className="bg-transparent border-none h-7 text-[11px] text-slate-300 font-mono focus:ring-0 max-w-xs" />
-          </div>
-          <Button onClick={handleSave} disabled={saving}
-            className="h-8 px-4 bg-emerald-600 hover:bg-emerald-500 text-[10px] font-black tracking-widest border-b-2 border-emerald-400 active:border-b-0">
-            {saving ? 'SAVING...' : 'SAVE WORKFLOW'}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setBlocks([])}
-            className="h-8 text-[10px] text-slate-500 hover:text-red-400 border border-slate-800 hover:border-red-800">
-            <Trash2 size={12} className="mr-1" /> CLEAR
-          </Button>
-        </div>
-
-        {/* drop zone */}
-        <div ref={canvasRef} className="flex-1 relative bg-[#020617] overflow-hidden"
-          style={{ backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)', backgroundSize: '28px 28px' }}
-          onDragOver={e => e.preventDefault()}
-          onDrop={e => { const t = e.dataTransfer.getData('blockType') as CanvasBlock['type']; if (t) dropBlock(t, e); }}>
-
-          {/* connectors (SVG) */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
-            {blocks.slice(0, -1).map((b, i) => {
-              const next = blocks[i + 1];
-              if (!next) return null;
-              const x1 = b.x + 100, y1 = b.y + 20, x2 = next.x, y2 = next.y + 20;
-              return <path key={b.id + next.id} d={`M${x1},${y1} C${(x1+x2)/2},${y1} ${(x1+x2)/2},${y2} ${x2},${y2}`}
-                fill="none" stroke="#334155" strokeWidth="1.5" strokeDasharray="4 3" />;
-            })}
-          </svg>
-
-          {/* blocks */}
-          {blocks.map((b, i) => {
-            const mod = MODULE_PALETTE.find(m => m.type === b.type)!;
-            const Icon = mod.icon;
-            return (
-              <div key={b.id}
-                style={{ position: 'absolute', left: b.x, top: b.y, zIndex: 10 }}
-                className="group select-none"
-                onMouseDown={e => onBlockMouseDown(b.id, e)}>
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-[#0f172a] cursor-grab shadow-lg text-[10px] font-bold ${mod.color} min-w-[120px]`}>
-                  {i > 0 && <ArrowRight size={10} className="text-slate-600 -ml-1 -mr-1 absolute -left-5 top-2" />}
-                  <Icon size={12} />
-                  <span className="flex-1">{b.label}</span>
-                  <span className="text-[8px] text-slate-700 font-mono">{b.id}</span>
-                  <button onClick={e => { e.stopPropagation(); setEditingBlock(b); }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-white transition-all ml-1">
-                    <Settings size={10} />
-                  </button>
-                  <button onClick={e => { e.stopPropagation(); removeBlock(b.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all">
-                    <X size={10} />
-                  </button>
-                </div>
-                {b.settings.aesSecure && (
-                  <span className="absolute -bottom-4 left-0 text-[7px] text-emerald-600 flex items-center gap-1"><Lock size={7} />AES-256</span>
-                )}
-              </div>
-            );
-          })}
-
-          {blocks.length === 0 && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700 pointer-events-none">
-              <Layers size={40} className="mb-3 opacity-30" />
-              <p className="text-[11px] tracking-widest font-bold">DRAG MODULES FROM PALETTE</p>
-              <p className="text-[9px] mt-1">Drop blocks to chain automation routines</p>
+        <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+          {MODULE_PALETTE.map(m => (
+            <div key={m.type} draggable onDragStart={e => e.dataTransfer.setData('type', m.type)}
+              className={`w-full py-3 px-4 rounded-md border ${m.color} bg-[#020617] hover:bg-[#091122] cursor-grab active:cursor-grabbing text-[11px] font-black tracking-widest flex items-center justify-start gap-3 transition-all shadow-[0_0_10px_rgba(0,0,0,0.3)]`}>
+              <m.icon size={14} />
+              {m.label}
             </div>
-          )}
+          ))}
         </div>
       </div>
 
-      {editingBlock && (
-        <BlockSettingsModal
-          block={editingBlock}
-          onClose={() => setEditingBlock(null)}
-          onSave={s => { saveBlock(editingBlock.id, s); setEditingBlock(null); }}
-        />
-      )}
+      {/* Canvas */}
+      <div className="flex-1 flex flex-col relative bg-[#020617]">
+        <div className="h-[56px] border-b border-slate-800/80 flex items-center justify-between px-6 bg-transparent absolute top-0 w-full z-10 pointer-events-none">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-slate-500 tracking-widest font-bold">BLUEPRINT_CANVAS</span>
+            <span className="text-[14px] font-black tracking-widest text-slate-200 uppercase">Custom Command Builder</span>
+          </div>
+          <div className="flex items-center gap-4 pointer-events-auto">
+            <span className="text-[9px] text-slate-600 font-bold tracking-widest">CPU &nbsp; RAM</span>
+            <button onClick={() => setBlocks([])} className="bg-red-950/40 text-red-400 hover:text-red-300 border border-red-500/30 px-4 py-1.5 rounded-sm transition-colors text-[9px] tracking-widest font-bold">CLEAR</button>
+            <button className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] tracking-widest px-5 py-2 rounded-sm transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+              SAVE WORKFLOW
+            </button>
+          </div>
+        </div>
+
+        <div ref={canvasRef} 
+             className="flex-1 relative w-full h-full bg-[#020617]" 
+             style={{ backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)', backgroundSize: '24px 24px' }}
+             onDragOver={e => e.preventDefault()} onDrop={handleDrop}>
+          
+          {/* SVG Connection Lines */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+             {blocks.map((b, i) => {
+               if (i === blocks.length - 1) return null;
+               const next = blocks[i+1];
+               const startX = b.x + 180;
+               const startY = b.y + 16;
+               const endX = next.x;
+               const endY = next.y + 16;
+               const path = `M ${startX} ${startY + 2} C ${startX + 50} ${startY + 2}, ${endX - 50} ${endY + 2}, ${endX - 8} ${endY + 2}`;
+               return <path key={`link-${i}`} d={path} fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="4 2" className="opacity-40 drop-shadow-[0_0_5px_rgba(16,185,129,0.5)]" />;
+             })}
+          </svg>
+
+          {blocks.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700 pointer-events-none z-0">
+              <Layers size={56} className="mb-4 opacity-40 text-emerald-500" />
+              <span className="text-[14px] font-black tracking-[0.2em] mb-2 text-slate-400">DRAG TO CHAIN</span>
+              <span className="text-[11px] text-slate-600 tracking-widest">Drag modules from the palette to orchestrate execution</span>
+            </div>
+          )}
+
+          {blocks.map(b => (
+            <div key={b.id} draggable onDragStart={e => e.dataTransfer.setData('id', b.id)}
+              className={`absolute flex items-center justify-between px-4 py-2 rounded-full border bg-[#020617]/90 backdrop-blur-md cursor-grab active:cursor-grabbing shadow-[0_10px_20px_#00000080] min-w-[180px] ${b.color} hover:bg-[#0f172a] transition-all group border-opacity-70 z-10`}
+              style={{ left: b.x, top: b.y }}>
+              <div className="absolute -left-1.5 w-3 h-3 rounded-full bg-[#020617] border-2 border-slate-500 z-10" />
+              <div className="flex items-center gap-3">
+                 <b.icon size={13} className="shrink-0" />
+                 <span className="text-[11px] font-black tracking-widest uppercase whitespace-nowrap">{b.label.replace(/[^a-zA-Z ]/g, '')}</span>
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 flex items-center transition-all ml-4 gap-0.5 shrink-0 bg-black/50 p-0.5 rounded">
+                <button onClick={() => setSettingsModal(b.id)} className="p-1 hover:text-emerald-400 transition-colors"><Settings size={12} /></button>
+                <button onClick={() => setBlocks(p => p.filter(bl => bl.id !== b.id))} className="p-1 hover:text-red-400 transition-colors"><Trash2 size={12} /></button>
+              </div>
+              <div className="absolute -right-1.5 w-3 h-3 rounded-full bg-[#020617] border-2 border-emerald-500 drop-shadow-[0_0_5px_rgba(16,185,129,0.8)] z-10" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Right Column: Dispatcher & Builder Config */}
+      <div className="w-[420px] bg-[#091122] border-l border-slate-800 flex flex-col z-10 shadow-[-10px_0_30px_#00000080] overflow-y-auto">
+        <div className="p-6 space-y-8">
+          {/* Dispatcher */}
+          <div className="border border-emerald-500/30 rounded-lg p-5 bg-[#020617]/50 shadow-[0_0_15px_rgba(16,185,129,0.05)]">
+            <div className="text-[11px] font-black tracking-widest text-emerald-500 mb-5 relative flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              WORKFLOW DISPATCHER
+            </div>
+            <div className="space-y-4">
+              <Label className="text-[10px] text-slate-400 tracking-widest font-bold">Schema Selector</Label>
+              <Select value={selectedSchema} onValueChange={setSelectedSchema}>
+                <SelectTrigger className="w-full bg-[#0f172a] border-[#1e293b] text-[12px] h-10 font-bold text-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0f172a] border-[#1e293b]">
+                  <SelectItem value="Sec Audit v3.json">Sec Audit v3.json</SelectItem>
+                  <SelectItem value="Target Deploy">Target Deploy.json</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex flex-col gap-3 pt-4 border-t border-slate-800">
+                <button className="w-full py-3 border border-red-500/50 bg-red-950/20 rounded text-red-500 text-[11px] font-black tracking-[0.2em] hover:bg-red-900/40 hover:border-red-400 transition-all shadow-[0_0_10px_rgba(239,68,68,0.15)] flex justify-center items-center gap-2">
+                  <Zap size={14} /> EXECUTE WORKFLOW
+                </button>
+                <span className="text-[10px] text-slate-500 tracking-widest">Active: {selectedSchema} <span className="text-emerald-400 font-bold">(Ready to Dispatch)</span></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Builder */}
+          <div className="border border-[#1e293b] rounded-lg p-5 bg-[#020617]">
+            <div className="text-[11px] font-black tracking-widest text-emerald-500 mb-6 uppercase">CUSTOM COMMAND BUILDER</div>
+            
+            <div className="flex items-end justify-between gap-4 mb-6">
+              <div className="space-y-2 flex-1">
+                <Label className="text-[10px] text-slate-400 tracking-widest font-bold">Secured Script Type</Label>
+                <Select value={securedScript} onValueChange={setSecuredScript}>
+                  <SelectTrigger className="w-full bg-[#0f172a] border-[#334155] text-[12px] h-9 font-bold text-slate-200 text-left">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0f172a] border-[#1e293b]">
+                    <SelectItem value="target_server_deploy.sh">target_server_deploy.sh</SelectItem>
+                    <SelectItem value="nmap_aggr.py">nmap_aggr.py</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col items-end gap-1.5 pb-1">
+                <span className="text-[9px] font-bold tracking-widest text-slate-400 uppercase">AES-256 secure</span>
+                <button onClick={() => setAesEnabled(!aesEnabled)} 
+                  className={`w-10 h-5 rounded-full relative transition-colors ${aesEnabled ? 'bg-emerald-500' : 'bg-slate-700'}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all shadow ${aesEnabled ? 'left-5' : 'left-0.5'}`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[10px] text-slate-400 tracking-widest font-bold">Decrypted Secured Command Script</Label>
+              <div className="w-full bg-[#0a0f1c] border border-[#1e293b] rounded-md p-4 text-[11px] text-slate-400 font-mono leading-loose overflow-x-auto whitespace-nowrap shadow-inner">
+                {aesEnabled ? (
+                  <>
+                    <span className="text-slate-600">--2026-03-27T10:15:30Z --cond secradmin:HRP:/\esstkh?*</span><br/>
+                    <span className="text-emerald-400">`{securedScript}`|='$0' -dd '{securedScript}'</span>
+                  </>
+                ) : (
+                  <span className="text-slate-400">./{securedScript} --no-encryption --verbose</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {settingsModal && <SettingsModal block={blocks.find(b => b.id === settingsModal)!} onClose={() => setSettingsModal(null)} onSave={s => { setBlocks(b => b.map(bl => bl.id === settingsModal ? {...bl, settings: s} : bl)); setSettingsModal(null); }} />}
     </div>
   );
 }
 
-// ─── Workflow Library Tab ─────────────────────────────────────────────────────
+// ─── Workflows Library Tab ────────────────────────────────────────────────────
 
-function WorkflowsTab({ library, fetchWorkflows, onRun }: {
-  library: Workflow[];
-  fetchWorkflows: () => void;
-  onRun: (w: Workflow) => void;
-}) {
+function WorkflowsTab({ library, fetchWorkflows, onRun }: { library: Workflow[]; fetchWorkflows: () => void; onRun: (w: any) => void; }) {
   const [injecting, setInjecting] = useState<number | null>(null);
-  const [dynVars, setDynVars] = useState<Record<string, string>>({});
-  const [filter, setFilter] = useState('');
-
-  const filtered = library.filter(w => w.name.toLowerCase().includes(filter.toLowerCase()));
-
-  const deleteWorkflow = async (id?: number) => {
-    if (!id) return;
-    await fetch(`${RELAY}/api/workflows/${id}`, { method: 'DELETE' });
-    fetchWorkflows();
-  };
+  const [dynVars, setDynVars] = useState<Record<number, string>>({});
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 p-6 overflow-auto">
-      {/* toolbar */}
-      <div className="flex items-center gap-3 mb-5">
-        <span className="text-[10px] text-slate-500 font-bold tracking-widest">WORKFLOW_LIBRARY</span>
-        <div className="flex-1">
-          <Input placeholder="Filter workflows..." value={filter} onChange={e => setFilter(e.target.value)}
-            className="bg-black/40 border-slate-800 h-8 text-[10px] max-w-xs" />
+    <div className="flex-1 flex flex-col min-h-0 bg-[#020617] p-8">
+      <div className="flex justify-between items-end mb-8 border-b border-slate-800 pb-4">
+        <div>
+           <h2 className="text-xl font-bold text-white tracking-widest uppercase">Saved Workflows</h2>
+           <p className="text-slate-500 text-xs tracking-widest mt-1">PostgreSQL Persistent Library</p>
         </div>
-        <Button variant="ghost" size="sm" onClick={fetchWorkflows} className="h-8 text-[10px] border border-slate-800 hover:bg-slate-800">
-          <RefreshCw size={12} className="mr-1" /> REFRESH
+        <Button onClick={fetchWorkflows} variant="outline" className="h-8 text-xs border-slate-700 bg-slate-900 font-mono">
+          <RefreshCw size={14} className="mr-2" /> Sync DB
         </Button>
-        <Badge variant="outline" className="text-[9px] border-slate-700 text-slate-500">{library.length} SCHEMAS</Badge>
       </div>
 
-      {/* grid */}
-      {filtered.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-700">
-          <Database size={36} className="mb-3 opacity-30" />
-          <p className="text-[11px] tracking-widest font-bold">NO WORKFLOWS SAVED</p>
-          <p className="text-[9px] mt-1">Build one on the Blueprint canvas and save it.</p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-3 gap-4">
-        {filtered.map(w => {
-          const params = (() => { try { return JSON.parse(w.parameters); } catch { return {}; } })();
-          const steps = Array.isArray(params.routine) ? params.routine.length : '—';
-          return (
-            <div key={w.id} className="group border border-slate-800 bg-black/40 rounded-xl p-4 hover:border-emerald-500/40 transition-all">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="text-[12px] font-black text-slate-100">{w.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className="text-[7px] bg-slate-900 border-slate-700 text-slate-400">{w.schema_type}</Badge>
-                    <span className={`text-[7px] font-bold px-1 rounded ${w.last_status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'}`}>
-                      {w.last_status?.toUpperCase() ?? 'IDLE'}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[8px] text-slate-700">{steps} steps</span>
-              </div>
-
-              <p className="text-[8px] text-slate-600 mb-3">{new Date(w.created_at!).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })}</p>
-
-              {/* dynamic var injector for this workflow */}
-              {injecting === w.id && (
-                <div className="mb-3 p-3 bg-black/60 rounded-lg border border-slate-800 space-y-2">
-                  <Label className="text-[8px] text-slate-500 tracking-widest">DYNAMIC VARIABLE</Label>
-                  <Input placeholder="IP-188T-43 / override val…" value={dynVars[w.id!] ?? ''}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 overflow-y-auto">
+        {library.length === 0 ? (
+          <div className="col-span-full text-center py-20 text-slate-500 text-sm tracking-widest font-mono">No workflows currently saved in DB.</div>
+        ) : library.map(w => (
+          <div key={w.id} className="p-5 rounded-lg border border-slate-800 bg-[#0a0f1c] hover:border-emerald-500/50 transition-all shadow-lg flex flex-col group">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-black text-emerald-400 tracking-widest">{w.name}</h3>
+              <Badge variant="outline" className="text-[10px] border-slate-700 bg-black tracking-widest font-mono text-slate-300">{w.schema_type}</Badge>
+            </div>
+            
+            <p className="text-[11px] text-slate-500 mb-6 font-mono leading-relaxed bg-black/50 p-2 border border-slate-800/50 rounded flex-1">
+               {w.parameters.length > 100 ? w.parameters.substring(0,100) + '...' : w.parameters}
+            </p>
+            
+            {/* Dynamic Injector inline */}
+            {injecting === w.id && (
+              <div className="mb-4 p-3 bg-emerald-950/20 rounded border border-emerald-500/30 space-y-2 animate-in fade-in slide-in-from-top-2">
+                <Label className="text-[9px] text-emerald-400 tracking-widest font-bold">DYNAMIC VARIABLE OVERRIDE</Label>
+                <div className="flex gap-2">
+                  <Input placeholder="TARGET_IP val..." value={dynVars[w.id!] ?? ''}
                     onChange={e => setDynVars(p => ({ ...p, [w.id!]: e.target.value }))}
-                    className="bg-black border-slate-700 h-7 text-[10px]" />
+                    className="bg-black/80 border-emerald-500/50 h-8 text-[11px] font-mono text-emerald-300 focus-visible:ring-0" />
+                  <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold tracking-widest px-4">SET</Button>
                 </div>
-              )}
+              </div>
+            )}
 
-              <div className="flex gap-2">
-                <Button onClick={() => onRun(w)} size="sm"
-                  className="flex-1 h-7 text-[9px] bg-blue-700 hover:bg-blue-600 font-bold tracking-widest">
-                  <Play size={10} className="mr-1" /> RUN
+            <div className="flex justify-between items-center border-t border-slate-800 pt-4 mt-auto">
+              <div className="flex flex-col">
+                <span className="text-[9px] text-slate-500 font-bold tracking-widest">LAST STATUS</span>
+                <span className="text-[11px] text-slate-300 font-mono">{w.last_status?.toUpperCase() || 'IDLE'}</span>
+              </div>
+              <div className="flex gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                <Button onClick={() => {
+                   window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'creation' }));
+                   setTimeout(() => window.dispatchEvent(new CustomEvent('edit-workflow', { detail: w })), 100);
+                }} size="sm" variant="ghost" className="h-8 px-2 text-[10px] border border-slate-700 bg-slate-900 hover:bg-slate-800 tracking-widest hover:text-emerald-400">
+                  EDIT
+                </Button>
+                <Button onClick={async () => {
+                   await fetch(`${RELAY}/api/workflows/${w.id}`, { method: 'DELETE' }).catch(()=>null);
+                   fetchWorkflows();
+                }} size="sm" variant="ghost" className="h-8 px-2 text-[10px] border border-slate-700 bg-slate-900 hover:bg-red-900 hover:border-red-500 hover:text-red-400 tracking-widest">
+                  DEL
                 </Button>
                 <Button onClick={() => setInjecting(injecting === w.id ? null : (w.id ?? null))} size="sm" variant="ghost"
-                  className="h-7 px-2 text-[9px] border border-slate-800 hover:bg-slate-800">
-                  Δ EDIT
+                  className="h-8 px-2 text-[10px] border border-slate-700 bg-slate-900 hover:bg-slate-800 tracking-widest">
+                  {"{}"}
                 </Button>
-                <Button onClick={() => deleteWorkflow(w.id)} size="sm" variant="ghost"
-                  className="h-7 px-2 text-[9px] border border-slate-800 hover:border-red-800 hover:text-red-400">
-                  <Trash2 size={10} />
+                <Button onClick={() => onRun(w)} size="sm" className="h-8 px-3 text-[10px] bg-blue-600 hover:bg-blue-500 font-bold tracking-widest shadow-md">
+                   <Play size={10} className="mr-1.5" /> RUN
                 </Button>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -490,22 +463,17 @@ function DashboardTab({ packets, logs, logsRef, onRun, library }: {
   onRun: (w: any) => void;
   library: Workflow[];
 }) {
-  const [filter, setFilter]           = useState('');
-  const [levelFilter, setLevelFilter] = useState<'ALL' | 'EXPLOIT' | 'SAFE'>('ALL');
+  const [filterStr, setFilterStr] = useState('');
+  const [levelFilter, setLevelFilter] = useState<'ALL' | 'INFO' | 'SUCCESS' | 'EXPLOIT' | 'CRITICAL'>('ALL');
   const [selectedPkt, setSelectedPkt] = useState<Packet | null>(null);
   const [isPaused, setIsPaused]       = useState(false);
   const [schema, setSchema]           = useState('sec-audit');
-  const [dynVars, setDynVars]         = useState({ target: '', creds: '', priority: '' });
   const [isRunning, setIsRunning]     = useState(false);
   const [progress, setProgress]       = useState(0);
   const [visPackets, setVisPackets]   = useState<Packet[]>([]);
 
-  // Mirror live packets only when not paused
-  useEffect(() => {
-    if (!isPaused) setVisPackets(packets);
-  }, [packets, isPaused]);
+  useEffect(() => { if (!isPaused) setVisPackets(packets); }, [packets, isPaused]);
 
-  // parse progress from logs
   useEffect(() => {
     const last = logs[logs.length - 1] ?? '';
     const m = last.match(/\[PROGRESS\]\s*(\d+)%/);
@@ -514,282 +482,187 @@ function DashboardTab({ packets, logs, logsRef, onRun, library }: {
   }, [logs]);
 
   const filtered = visPackets.filter(p => {
-    const q = filter.toLowerCase();
+    const q = filterStr.toLowerCase();
     const matchSearch = !q || p.sourceIp.includes(q) || p.payload.toLowerCase().includes(q);
-    const matchLevel = levelFilter === 'ALL'
-      || (levelFilter === 'EXPLOIT' && p.level === 'CRITICAL')
-      || (levelFilter === 'SAFE'    && (p.level === 'INFO' || p.level === 'SUCCESS'));
+    const matchLevel = levelFilter === 'ALL' || p.level === levelFilter;
     return matchSearch && matchLevel;
   });
 
-  const handleExecute = () => {
-    setIsRunning(true); setProgress(5);
-    onRun({ name: schema, schema: schema, routine: [{ task: 'SHELL', input: { command: `echo ${schema} ${dynVars.target}` } }] });
-  };
-
-  const handleInterrupt = () => {
-    fetch(`${RELAY}/api/restart-core`, { method: 'POST' });
-    setIsRunning(false); setProgress(0);
-  };
-
-  const totalThreats = visPackets.filter(p => p.level === 'CRITICAL').length;
-  const successCount = visPackets.filter(p => p.level === 'SUCCESS').length;
-
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 bg-[#020617]">
 
-      {/* ── COMMAND DECK ── */}
-      <section className="border-b border-slate-800 bg-slate-900/10 px-6 py-4 grid grid-cols-12 gap-4 items-end">
-        {/* schema selector */}
-        <div className="col-span-2 space-y-1">
-          <Label className="text-[9px] text-slate-500 tracking-widest font-bold">SCHEMA_SELECTOR</Label>
-          <Select value={schema} onValueChange={setSchema}>
-            <SelectTrigger className="bg-black/40 border-slate-700 h-9 text-[10px]"><SelectValue /></SelectTrigger>
-            <SelectContent className="bg-[#020617] border-slate-700">
-              <SelectItem value="sec-audit">Sec Audit v3.json</SelectItem>
-              <SelectItem value="infra-setup">Infra Setup</SelectItem>
-              <SelectItem value="data-sync">Database Sync</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* variable injector */}
-        <div className="col-span-5 space-y-1">
-          <Label className="text-[9px] text-slate-500 tracking-widest font-bold">VARIABLE_INJECTOR</Label>
-          <div className="flex gap-2">
-            <Input placeholder="IP-492.260.1.390" value={dynVars.target}
-              onChange={e => setDynVars(p => ({...p, target: e.target.value}))}
-              className="bg-black/40 border-slate-700 h-9 text-[10px] flex-1" />
-            <Input placeholder="MSH:1337+66,A3" value={dynVars.creds} type="password"
-              onChange={e => setDynVars(p => ({...p, creds: e.target.value}))}
-              className="bg-black/40 border-slate-700 h-9 text-[10px] flex-1" />
-            <Input placeholder="Priority" value={dynVars.priority}
-              onChange={e => setDynVars(p => ({...p, priority: e.target.value}))}
-              className="bg-black/40 border-slate-700 h-9 text-[10px] w-24" />
+      {/* ── COMMAND DECK & FILTERS ── */}
+      <section className="border-b border-[#1e293b] bg-[#050914] flex flex-col z-20 shadow-md">
+        
+        {/* The Exact Tool-bar Row requested */}
+        <div className="h-[54px] flex items-center justify-between border-b border-[#1e293b] px-0 pl-6 w-full shrink-0">
+          <div className="flex items-center gap-4 h-full border-r border-[#1e293b] pr-6">
+            <span className="text-[11px] font-black tracking-widest text-[#475569] uppercase">GLOBAL LEVELR</span>
+            <div className="relative">
+               <Input placeholder="Filter by IP or payload..." value={filterStr} onChange={e => setFilterStr(e.target.value)}
+                 className="h-8 text-[11px] font-mono bg-[#0f172a] border-[#1e293b] focus-visible:ring-emerald-500/50 rounded-sm px-3 w-[250px] text-emerald-400 placeholder:text-slate-600 shadow-inner" />
+            </div>
           </div>
-        </div>
-
-        {/* action buttons */}
-        <div className="col-span-3 flex gap-2 items-end">
-          <Button onClick={handleExecute} disabled={isRunning}
-            className={`flex-1 h-9 font-black text-[10px] tracking-widest transition-all
-              ${isRunning ? 'bg-amber-600 hover:bg-amber-500 border-amber-400' : 'bg-blue-700 hover:bg-blue-600 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.3)]'}
-              border-b-4 active:border-b-0 active:translate-y-0.5`}>
-            {isRunning ? '⚙ RUNNING...' : '⚡ EXECUTE WORKFLOW'}
-          </Button>
-          <Button onClick={handleInterrupt} variant="ghost" size="sm"
-            className="h-9 px-3 border border-red-800/60 text-red-500 hover:bg-red-950/30">
-            <Square size={14} fill="currentColor" />
-          </Button>
-        </div>
-
-        {/* running status text */}
-        <div className="col-span-2 space-y-1">
-          {isRunning && <Label className="text-[8px] text-amber-400 tracking-widest animate-pulse">Active: {schema} (Step 1/25 — Port Scan)</Label>}
-          {!isRunning && <Label className="text-[8px] text-slate-600 tracking-widest">IDLE — No active routine</Label>}
-          <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-            <div className="h-full bg-emerald-500 shadow-[0_0_6px_#10b981] transition-all duration-500" style={{ width: `${progress}%` }} />
-          </div>
-        </div>
-      </section>
-
-      {/* ── MIDDLE PANE ── */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-
-        {/* LEFT: Packet Feed */}
-        <div className="flex-1 flex flex-col border-r border-slate-800">
-          {/* feed header */}
-          <div className="h-10 px-4 border-b border-slate-800 flex items-center gap-3 bg-black/20 flex-shrink-0">
-            <Activity size={12} className="text-emerald-400" />
-            <span className="text-[9px] font-bold tracking-widest text-slate-500">GLOBAL_PACKET_FEED</span>
-            <span className="text-[9px] text-slate-700">Filter by IP:</span>
-            <Input value={filter} onChange={e => setFilter(e.target.value)} placeholder="0.0.0.0"
-              className="bg-transparent border-slate-800 h-6 w-28 text-[9px]" />
-            {/* level filter */}
-            {(['ALL', 'EXPLOIT', 'SAFE'] as const).map(lv => (
-              <button key={lv} onClick={() => setLevelFilter(lv)}
-                className={`text-[8px] font-bold px-2 py-0.5 rounded transition-all ${levelFilter === lv ? 'bg-slate-700 text-white' : 'text-slate-600 hover:text-slate-400'}`}>
-                {lv}
+          
+          <div className="flex items-center gap-2 px-6 h-full flex-1">
+            {['ALL', 'INFO', 'SUCCESS', 'EXPLOIT', 'CRITICAL'].map(l => (
+              <button key={l} onClick={() => setLevelFilter(l as any)}
+                className={`px-4 py-1.5 rounded-[4px] text-[10px] font-black tracking-[0.15em] border transition-all ${
+                  levelFilter === l 
+                    ? `bg-emerald-950/40 border-emerald-500/60 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]` 
+                    : `bg-transparent border-[#1e293b] text-slate-500 hover:text-slate-300 hover:border-slate-600`
+                }`}>
+                {l}
               </button>
             ))}
-            <div className="flex-1" />
-            <span className="text-[8px] text-slate-700">{filtered.length} packets</span>
-            <button onClick={() => setIsPaused(p => !p)}
-              className={`flex items-center gap-1 text-[8px] font-bold px-2 py-1 rounded border transition-all
-                ${isPaused ? 'bg-amber-950/40 border-amber-600/50 text-amber-400' : 'bg-emerald-950/40 border-emerald-600/50 text-emerald-400'}`}>
-              {isPaused ? <><Play size={9}/> LIVE</> : <><Pause size={9}/> PAUSE</>}
-            </button>
           </div>
 
-          {/* table */}
-          <div className="flex-1 overflow-auto">
-            <Table className="text-[10px]">
-              <TableHeader className="sticky top-0 bg-black/60 z-10">
-                <TableRow className="border-slate-800 hover:bg-transparent">
-                  <TableHead className="w-10 px-3 text-slate-600 text-[8px]">NO.</TableHead>
-                  <TableHead className="w-24 text-slate-600 text-[8px]">SOURCE_IP</TableHead>
-                  <TableHead className="w-20 text-slate-600 text-[8px]">LVL</TableHead>
-                  <TableHead className="text-slate-600 text-[8px]">PAYLOAD</TableHead>
-                  <TableHead className="w-28 text-right pr-4 text-slate-600 text-[8px]">TIMESTAMP</TableHead>
+          <div className="flex items-center border-l border-[#1e293b] h-full px-6 gap-3">
+             <Button onClick={() => setIsRunning(true)} className="h-8 text-[10px] bg-blue-700 hover:bg-blue-600 font-bold tracking-widest uppercase">
+               <Play size={12} className="mr-1.5" /> Execute Standard Routine
+             </Button>
+          </div>
+        </div>
+        
+        {isRunning && (
+           <div className="h-1 bg-slate-900 w-full overflow-hidden">
+             <div className="h-full bg-blue-500 shadow-[0_0_8px_#3b82f6] transition-all duration-300" style={{ width: `${progress}%` }} />
+           </div>
+        )}
+      </section>
+
+      {/* ── MIDDLE PANE: Table & Inspector ── */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Packet Table */}
+        <div className="flex-1 border-r border-[#1e293b] bg-[#020617] flex flex-col font-mono text-[11px]">
+          <div className="h-8 border-b border-[#1e293b] bg-[#091122] flex items-center justify-between px-4 font-bold text-slate-500 tracking-widest text-[10px] uppercase">
+            <span>Live Security Feed</span>
+            <button onClick={() => setIsPaused(!isPaused)} className={`flex items-center gap-1 ${isPaused ? 'text-red-400' : 'text-emerald-400 hover:text-emerald-300'}`}>
+              {isPaused ? <><Play size={10}/> RESUME</> : <><Pause size={10}/> LIVE</>}
+            </button>
+          </div>
+          <ScrollArea className="flex-1 bg-[#020617]">
+            <Table>
+              <TableHeader className="bg-[#050914] sticky top-0 z-10 shadow-sm">
+                <TableRow className="border-b border-slate-800 hover:bg-transparent">
+                  <TableHead className="w-24 text-[10px] text-slate-500">TIME</TableHead>
+                  <TableHead className="w-24 text-[10px] text-slate-500">LEVEL</TableHead>
+                  <TableHead className="w-32 text-[10px] text-slate-500">SOURCE IP</TableHead>
+                  <TableHead className="text-[10px] text-slate-500">PAYLOAD</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((p, i) => (
-                  <TableRow key={p.id} onClick={() => setSelectedPkt(prev => prev?.id === p.id ? null : p)}
-                    className={`border-b border-slate-900/60 cursor-pointer transition-colors
-                      ${selectedPkt?.id === p.id ? 'bg-blue-950/30 border-blue-800/40' : 'hover:bg-slate-800/20'}
-                      ${p.level === 'CRITICAL' ? 'hover:bg-red-950/20' : ''}`}>
-                    <TableCell className="px-3 text-slate-700 font-mono">{(i + 1).toString().padStart(4, '0')}</TableCell>
-                    <TableCell className="font-mono text-slate-400">{p.sourceIp}</TableCell>
-                    <TableCell>
-                      <span className={`px-1.5 py-0.5 rounded-sm text-[7px] font-black ${levelClass(p.level)}`}>{p.level}</span>
-                    </TableCell>
-                    <TableCell className={`font-mono max-w-xs truncate ${p.level === 'CRITICAL' ? 'text-red-300' : 'text-slate-300'}`}>
-                      {p.payload}
-                    </TableCell>
-                    <TableCell className="text-right pr-4 font-mono text-slate-600">
-                      {p.timestamp?.split(' ')[1] ?? p.timestamp}
-                    </TableCell>
+                {filtered.map(p => (
+                  <TableRow key={p.id} onClick={() => setSelectedPkt(p)}
+                     className={`cursor-pointer border-b border-slate-800/50 hover:bg-[#0f172a] transition-colors ${selectedPkt?.id === p.id ? 'bg-[#0f172a] border-emerald-900 flex-none' : ''}`}>
+                    <TableCell className="text-slate-500">{p.timestamp}</TableCell>
+                    <TableCell><span className={`px-2 py-0.5 rounded text-[9px] font-bold ${levelClass(p.level)}`}>{p.level}</span></TableCell>
+                    <TableCell className="text-slate-400">{p.sourceIp}</TableCell>
+                    <TableCell className="text-slate-300 truncate max-w-[200px]">{p.payload}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            {filtered.length === 0 && (
-              <div className="flex items-center justify-center h-32 text-[9px] text-slate-700 tracking-widest">AWAITING STREAM…</div>
+          </ScrollArea>
+        </div>
+
+        {/* Inspector */}
+        <div className="w-[380px] bg-[#050914] flex flex-col shadow-[-5px_0_15px_rgba(0,0,0,0.5)] z-10">
+          <div className="h-8 border-b border-[#1e293b] bg-[#091122] flex items-center px-4 text-[10px] font-bold text-slate-500 tracking-widest uppercase shadow-md">DETAIL INSPECTOR</div>
+          <div className="flex-1 p-5 overflow-y-auto">
+            {!selectedPkt ? (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-600 font-mono tracking-widest text-center">Select a packet from the feed<br/>to inspect payload</div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                  <div>
+                    <div className="text-[10px] text-slate-500 tracking-widest mb-1 uppercase font-bold">Event ID</div>
+                    <div className="text-[12px] text-emerald-400 font-mono">{selectedPkt.id}</div>
+                  </div>
+                  <Badge className={`text-[10px] font-black tracking-widest px-3 py-1 ${levelClass(selectedPkt.level)}`}>{selectedPkt.level}</Badge>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-[#0a0f1c] p-3 rounded border border-slate-800 shadow-inner">
+                    <div className="text-[9px] text-slate-500 tracking-widest mb-1.5 font-bold uppercase">Source IP</div>
+                    <div className="text-[11px] text-slate-200 font-mono">{selectedPkt.sourceIp}</div>
+                  </div>
+                  <div className="bg-[#0a0f1c] p-3 rounded border border-slate-800 shadow-inner">
+                    <div className="text-[9px] text-slate-500 tracking-widest mb-1.5 font-bold uppercase">Timestamp</div>
+                    <div className="text-[11px] text-slate-200 font-mono">{selectedPkt.timestamp}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <div className="text-[10px] text-slate-500 tracking-widest font-bold uppercase">Decoded Payload Segment</div>
+                  <div className="w-full bg-[#0a0f1c] border border-slate-700/60 rounded p-4 text-[11px] text-orange-400 font-mono break-all leading-loose shadow-[inset_0_4px_10px_rgba(0,0,0,0.5)]">
+                    {selectedPkt.payload}
+                  </div>
+                </div>
+                
+                <div className="pt-4 border-t border-slate-800 flex gap-2">
+                  <Button size="sm" className="flex-1 text-[10px] font-bold tracking-widest bg-emerald-900 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-800">TRACE ORIGIN</Button>
+                  <Button size="sm" className="flex-1 text-[10px] font-bold tracking-widest bg-red-900 border border-red-500/50 text-red-400 hover:bg-red-800">BLOCK IP</Button>
+                </div>
+              </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* RIGHT SIDEBAR — overflow-y-auto to prevent long lists from overflowing */}
-        <aside className="w-[340px] flex flex-col flex-shrink-0 bg-[rgba(4,9,26,0.8)] overflow-y-auto">
-
-          {/* Packet Detail Inspector — flex:0 0 auto so it grows with content */}
-          <div style={{ flex: '0 0 auto', minHeight: '240px' }} className="flex flex-col border-b border-slate-800">
-            <div className="h-9 px-4 border-b border-slate-800 flex items-center" style={{ background: 'rgba(4,9,26,0.8)', backdropFilter: 'blur(8px)' }}>
-              <span className="text-[10px] font-bold tracking-widest text-slate-500">PACKET_DETAIL_INSPECTOR</span>
-            </div>
-            {selectedPkt ? (
-              <div className="flex-1 overflow-auto p-3 space-y-2">
-                {/* auto-fit responsive grid — never squashes below 140px per cell */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
-                  {([
-                    ['PACKET ID',  selectedPkt.id],
-                    ['LEVEL',      selectedPkt.level],
-                    ['SOURCE IP',  selectedPkt.sourceIp],
-                    ['TIMESTAMP',  selectedPkt.timestamp],
-                  ] as [string, string][]).map(([label, val]) => (
-                    <div key={label} className="space-y-0.5 min-w-0">
-                      <p className="text-[9px] text-slate-500 uppercase tracking-widest">{label}</p>
-                      <p className={`font-mono text-[11px] font-bold truncate ${
-                        label === 'LEVEL'
-                          ? (levelClass(selectedPkt.level).split(' ').find(c => c.startsWith('text-')) ?? 'text-white')
-                          : 'text-slate-200'
-                      }`} title={val}>{val}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* PAYLOAD — truncated, expands on hover */}
-                <div className="space-y-0.5 pt-2 border-t border-slate-800">
-                  <p className="text-[9px] text-slate-500 uppercase tracking-widest">PAYLOAD</p>
-                  <p className="font-mono text-[11px] text-slate-300 leading-relaxed overflow-hidden"
-                    style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', cursor: 'pointer' }}
-                    onClick={e => { const el = e.currentTarget; el.style.webkitLineClamp = el.style.webkitLineClamp === 'unset' ? '2' : 'unset'; }}>
-                    {selectedPkt.payload}
-                  </p>
-                </div>
-
-                {selectedPkt.raw && (
-                  <div className="space-y-0.5 pt-2 border-t border-slate-800">
-                    <p className="text-[9px] text-slate-500 uppercase tracking-widest">RAW</p>
-                    <p className="font-mono text-[9px] text-slate-600 break-all leading-relaxed overflow-hidden"
-                      style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', cursor: 'pointer' }}
-                      onClick={e => { const el = e.currentTarget; el.style.webkitLineClamp = el.style.webkitLineClamp === 'unset' ? '2' : 'unset'; }}>
-                      {selectedPkt.raw}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-[9px] text-slate-700 tracking-widest" style={{ minHeight: '100px' }}>
-                ← CLICK A ROW TO INSPECT
-              </div>
-            )}
+      {/* ── BOTTOM TERMINAL (On-the-fly Decryption) ── */}
+      <div className="h-[220px] bg-black border-t border-[#1e293b] flex flex-col font-mono text-[11px] shrink-0 z-20 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
+        <div className="flex items-center justify-between px-4 h-8 border-b border-[#1e293b] bg-[#050914]">
+          <div className="flex items-center gap-2">
+            <Terminal size={12} className="text-emerald-500" />
+            <span className="tracking-widest font-bold text-slate-500 text-[10px]">RAW TELEMETRY / ON-THE-FLY ENGINE LOG DECRYPTION</span>
           </div>
-
-          {/* Workflow Dispatcher quick-launch */}
-          <div className="flex flex-col border-b border-slate-800" style={{ flex: '1 1 auto', minHeight: '140px' }}>
-            <div className="h-9 px-4 border-b border-slate-800 flex items-center" style={{ background: 'rgba(4,9,26,0.8)', backdropFilter: 'blur(8px)' }}>
-              <span className="text-[10px] font-bold tracking-widest text-slate-500">WORKFLOW_DISPATCHER</span>
-            </div>
-            <ScrollArea className="p-3" style={{ flex: '1 1 0', minHeight: '80px' }}>
-              <div className="flex flex-col gap-2">
-                {library.slice(0, 5).map(w => (
-                  <div key={w.id}
-                    className="flex items-center gap-2 p-2 border border-slate-800 rounded-lg bg-black/30 hover:border-blue-500/40 cursor-pointer group transition-all"
-                    style={{ minHeight: '36px' }}
-                    onClick={() => { try { onRun(JSON.parse(w.parameters)); } catch {} }}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
-                    <span className="text-[11px] text-slate-300 flex-1 truncate">{w.name}</span>
-                    <Badge className="text-[7px] bg-slate-900 border-slate-700 text-slate-500 flex-shrink-0">{w.schema_type}</Badge>
-                    <ChevronRight size={12} className="text-slate-700 group-hover:text-blue-400 transition-colors flex-shrink-0" />
-                  </div>
-                ))}
-                {library.length === 0 && <p className="text-[9px] text-slate-700 text-center py-4">No saved workflows</p>}
-              </div>
-            </ScrollArea>
+          <div className="flex items-center gap-2">
+             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+             <span className="text-[9px] font-bold text-slate-400 tracking-widest">STREAMING</span>
           </div>
+        </div>
+        <div ref={logsRef} className="flex-1 p-4 overflow-y-auto leading-[1.6]">
+           {logs.length === 0 ? <div className="text-slate-600">Waiting for C++ engine byte-stream...</div> : logs.map((l, i) => {
+              
+              // Progress Bar parser
+              if (l.includes('[PROGRESS]')) {
+                 const m = l.match(/\[PROGRESS\]\s*(\d+)%/);
+                 const pct = m ? m[1] : 0;
+                 return (
+                   <div key={i} className="flex items-center gap-3 py-1">
+                      <span className="text-blue-500">[{new Date().toISOString().substring(11,19)}]</span>
+                      <span className="bg-blue-500/20 text-blue-400 px-1 rounded text-[10px]">SYS</span>
+                      <div className="w-[180px] h-2 bg-slate-800 rounded overflow-hidden">
+                        <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-blue-400 font-bold">{pct}%</span>
+                      <span className="text-slate-400 ml-2">{l.split('—')[1]}</span>
+                   </div>
+                 );
+              }
 
-          {/* RAW Telemetry */}
-          <div className="flex flex-col" style={{ flex: '0 0 auto', height: '200px' }}>
-            <div className="h-9 px-4 border-b border-slate-800 flex items-center justify-between" style={{ background: 'rgba(4,9,26,0.8)', backdropFilter: 'blur(8px)' }}>
-              <span className="text-[10px] font-bold tracking-widest text-slate-500">RAW_TELEMETRY</span>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[9px] text-emerald-500 font-bold">STREAM_LIVE</span>
-              </div>
-            </div>
-            <ScrollArea ref={logsRef} className="flex-1 p-3 font-mono leading-relaxed">
-              {logs.map((l, i) => (
-                <div key={i} className="mb-0.5 flex gap-2">
-                  <span className="text-slate-700 w-6 text-right flex-shrink-0 text-[9px]">{i}</span>
-                  <span className={`text-[9px] break-all ${
-                    l.includes('[PROGRESS]') ? 'text-blue-400 font-bold' :
-                    l.includes('SUCCESS')    ? 'text-emerald-400' :
-                    l.includes('ERROR')      ? 'text-red-400' :
-                    l.includes('WARN')       ? 'text-amber-400' : 'text-slate-500'
-                  }`}>{l}</span>
-                </div>
-              ))}
-            </ScrollArea>
-          </div>
+              // Decryption parsing simulator
+              let displayLine = l;
+              if (l.includes('[ENGINE]') && l.length > 50) {
+                 displayLine = `<span class="text-slate-500">[${new Date().toISOString().substring(11,19)}]</span> ` + 
+                               `<span class="text-orange-400">[AES-256 DECRYPTED]</span> ` + 
+                               `<span class="text-slate-300">${l.substring(20, 60)}...</span>`;
+              }
 
-          {/* Threat breakdown — always visible, tight */}
-          <div className="border-t border-slate-800 p-3 flex-shrink-0" style={{ background: 'rgba(4,9,26,0.8)', backdropFilter: 'blur(8px)' }}>
-            <p className="text-[9px] text-slate-600 font-bold tracking-widest mb-2">THREAT_BREAKDOWN</p>
-            <div className="space-y-1.5">
-              {[
-                { label: 'CRITICAL', val: totalThreats, color: 'bg-red-500' },
-                { label: 'SUCCESS',  val: successCount, color: 'bg-emerald-500' },
-              ].map(({ label, val, color }) => (
-                <div key={label} className="flex items-center gap-2">
-                  <span className="text-[9px] text-slate-600 w-16">{label}</span>
-                  <div className="flex-1 h-1.5 bg-slate-900 rounded-full overflow-hidden">
-                    <div className={`h-full ${color} transition-all duration-500`}
-                      style={{ width: `${Math.min(100, (val / Math.max(visPackets.length, 1)) * 100)}%` }} />
-                  </div>
-                  <span className="text-[11px] font-mono text-slate-400 w-6 text-right font-bold">{val}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </aside>
+              return (
+                 <div key={i} className={`py-1 ${l.includes('[CRITICAL]') || l.includes('ERROR') ? 'text-red-400' : 'text-slate-400'}`}>
+                   {displayLine === l ? <span className="text-slate-500">[{new Date().toISOString().substring(11,23)}] <span className="text-slate-400">{l}</span></span> : <span dangerouslySetInnerHTML={{ __html: displayLine }} />}
+                 </div>
+              );
+           })}
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Root Dashboard ───────────────────────────────────────────────────────────
+// ─── Root Dashboard Router ───────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [tab, setTab]                 = useState<'dashboard' | 'workflows' | 'creation'>('dashboard');
@@ -799,24 +672,29 @@ export default function Dashboard() {
   const [library, setLibrary]         = useState<Workflow[]>([]);
   const [totalPackets, setTotalPkts]  = useState(0);
   const logsRef                       = useRef<HTMLDivElement>(null);
-  const isPausedRef                   = useRef(false); // shared ref for socket handler
+  const isPausedRef                   = useRef(false);
 
   const fetchWorkflows = useCallback(async () => {
     try {
       const r = await fetch(`${RELAY}/api/workflows`);
-      const d = await r.json();
-      setLibrary(d);
-    } catch { /* relay may not be running */ }
+      setLibrary(await r.json());
+    } catch { } // ignore
+  }, []);
+
+  useEffect(() => {
+    const handleTab = (e: Event) => setTab((e as CustomEvent).detail);
+    window.addEventListener('switch-tab', handleTab);
+    return () => window.removeEventListener('switch-tab', handleTab);
   }, []);
 
   useEffect(() => {
     socket.on('packet-received', (pkt: Packet) => {
       if (isPausedRef.current) return;
-      setPackets(p => [pkt, ...p].slice(0, 200));
+      setPackets(p => [pkt, ...p].slice(0, 400));
       setTotalPkts(n => n + 1);
     });
     socket.on('system-vitals', (d: Vitals) => setVitals(d));
-    socket.on('raw-log', (l: string) => setLogs(p => [...p, l].slice(-80)));
+    socket.on('raw-log', (l: string) => setLogs(p => [...p, l].slice(-100)));
     fetchWorkflows();
     return () => { socket.off('packet-received'); socket.off('system-vitals'); socket.off('raw-log'); };
   }, [fetchWorkflows]);
@@ -833,109 +711,59 @@ export default function Dashboard() {
     });
   };
 
-  const handlePurge = () => {
-    fetch(`${RELAY}/api/purge-logs`, { method: 'POST' });
-    setPackets([]); setLogs([]);
-  };
-
-  const criticalCount = packets.filter(p => p.level === 'CRITICAL').length;
-
-  const TABS = [
-    { id: 'dashboard',  label: '⬡ Dashboard' },
-    { id: 'workflows',  label: '⬡ Workflows' },
-    { id: 'creation',   label: '⬡ Creation'  },
-  ] as const;
+  const handlePurge = () => { fetch(`${RELAY}/api/purge-logs`, { method: 'POST' }); setPackets([]); setLogs([]); };
+  const criticalCount = packets.filter(p => p.level === 'CRITICAL' || p.level === 'EXPLOIT').length;
 
   return (
-    <div className="flex h-screen w-full bg-[#020617] text-slate-200 overflow-hidden" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
-
+    <div className="flex flex-col h-screen w-full bg-[#020617] text-slate-200 overflow-hidden font-mono">
       {/* ── GLOBAL HEADER ── */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center border-b border-slate-800 h-14 px-6 gap-6"
-        style={{ background: 'rgba(4,9,26,0.95)', backdropFilter: 'blur(12px)' }}>
-
-        {/* brand */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="p-1.5 bg-emerald-600/20 rounded-md border border-emerald-600/30 led-glow">
-            <Zap size={16} className="text-emerald-400" />
+      <div className="h-[56px] flex items-center justify-between px-6 border-b border-[#1e293b] bg-[#020617]/95 backdrop-blur-md z-50 shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="p-2 border border-emerald-500/30 rounded-md bg-emerald-500/10 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+            <Zap size={14} className="text-emerald-400" />
           </div>
           <div>
-            <p className="text-[11px] font-black tracking-tighter text-white leading-none">TACTICAL THREAT ANALYZER</p>
-            <p className="text-[8px] text-slate-600 tracking-widest">v3.1 // #STEAKMARK-NONE</p>
+            <p className="text-[13px] font-black tracking-[0.2em] text-white leading-tight">AUTOMATION ORCHESTRATOR</p>
+            <p className="text-[9px] text-[#475569] tracking-[0.25em] font-bold">v4.2.1 // WIRESHARK-MODE</p>
           </div>
         </div>
 
-        {/* tabs */}
-        <nav className="flex items-center gap-1">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded text-[10px] font-bold tracking-widest transition-all border
-                ${tab === t.id
-                  ? 'bg-slate-800 border-slate-700 text-white'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'}`}>
-              {t.label}
-            </button>
+        {/* Tab Router */}
+        <nav className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
+          {[{ id: 'dashboard', label: 'Monitor' }, { id: 'creation', label: 'Blueprint' }, { id: 'workflows', label: 'Library' }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              className={`px-5 py-1.5 rounded-full text-[11px] font-black tracking-widest transition-all border ${
+                tab === t.id ? 'bg-[#0f172a] border-emerald-500/50 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-transparent text-slate-500 hover:text-slate-300'
+              }`}>{t.label.toUpperCase()}</button>
           ))}
         </nav>
 
-        {/* stat counters */}
-        <div className="flex items-center gap-6 ml-auto">
+        <div className="flex items-center gap-6 h-full py-1">
+          <div className="flex items-center gap-5 mr-4">
+            <RadialGauge value={vitals.cpu} label="CPU" color="#ef4444" size={40} />
+            <RadialGauge value={vitals.ram} label="RAM" color="#10b981" size={40} />
+          </div>
           {[
-            { label: 'PACKETS',  val: totalPackets.toString().padStart(3,'0') },
-            { label: 'THREATS',  val: criticalCount.toString().padStart(3,'0'), color: 'text-red-400' },
-            { label: 'WORKFLOWS',val: library.length.toString().padStart(2,'0'), color: 'text-blue-400' },
-          ].map(({ label, val, color }) => (
-            <div key={label} className="flex flex-col items-center border-l border-slate-800 pl-5 first:border-0 first:pl-0">
-              <span className={`text-sm font-black tracking-tighter ${color ?? 'text-white'}`}>{val}</span>
-              <span className="text-[7px] text-slate-600 font-bold tracking-widest">{label}</span>
+            { label: 'PACKETS',  val: totalPackets, color: 'text-slate-200' },
+            { label: 'THREATS',  val: criticalCount, color: 'text-red-500 shadow-[0_0_10px_rgba(239,68,68,0.2)]' },
+          ].map((s) => (
+            <div key={s.label} className="flex flex-col items-center border-l border-[#1e293b] pl-5 h-full justify-center">
+              <span className={`text-[12px] font-black tracking-widest ${s.color}`}>{s.val}</span>
+              <span className="text-[8px] text-slate-600 font-bold tracking-[0.2em] mt-0.5">{s.label}</span>
             </div>
           ))}
-        </div>
-        {/* vitals gauges — 60px gauges to save header space */}
-        <div className="flex items-center gap-3 border-l border-slate-800 pl-6 flex-shrink-0">
-          <div className="flex flex-col items-end gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <Cpu size={10} className="text-emerald-500" />
-              <span className="text-[9px] text-slate-500">CPU</span>
-              <span className="text-[11px] text-emerald-400 font-bold">{vitals.cpu}%</span>
-            </div>
-            <div className="w-24 h-1 bg-slate-900 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 shadow-[0_0_4px_#10b981] transition-all duration-500" style={{ width: `${vitals.cpu}%` }} />
-            </div>
+          <div className="flex items-center gap-1 border-l border-[#1e293b] pl-5 ml-1 h-full">
+            <button onClick={handlePurge} className="p-2 rounded hover:bg-red-950/40 hover:text-red-400 text-slate-600 transition-colors"><Trash2 size={13} /></button>
+            <button onClick={() => fetch(`${RELAY}/api/restart-core`, { method: 'POST' })} className="p-2 rounded hover:bg-blue-950/40 hover:text-blue-400 text-slate-600 transition-colors"><RefreshCw size={13} /></button>
           </div>
-          <div className="flex flex-col items-end gap-0.5">
-            <div className="flex items-center gap-1.5">
-              <MemoryStick size={10} className="text-blue-500" />
-              <span className="text-[9px] text-slate-500">RAM</span>
-              <span className="text-[11px] text-blue-400 font-bold">{vitals.ram}%</span>
-            </div>
-            <div className="w-24 h-1 bg-slate-900 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500 shadow-[0_0_4px_#3b82f6] transition-all duration-500" style={{ width: `${vitals.ram}%` }} />
-            </div>
-          </div>
-          <RadialGauge value={vitals.cpu} label="CPU" color="#10b981" size={60} />
-          <RadialGauge value={vitals.ram} label="RAM" color="#3b82f6" size={60} />
-        </div>
-
-        {/* action icons */}
-        <div className="flex items-center gap-1 border-l border-slate-800 pl-4 flex-shrink-0">
-          <button onClick={handlePurge} title="Purge logs"
-            className="p-2 rounded hover:bg-red-950/30 hover:text-red-400 text-slate-600 transition-colors">
-            <Trash2 size={14} />
-          </button>
-          <button onClick={() => fetch(`${RELAY}/api/restart-core`, { method: 'POST' })} title="Restart core"
-            className="p-2 rounded hover:bg-blue-950/30 hover:text-blue-400 text-slate-600 transition-colors">
-            <RefreshCw size={14} />
-          </button>
         </div>
       </div>
 
-      {/* ── BODY (below header) ── */}
-      <div className="flex flex-col w-full pt-14" style={{ height: 'calc(100vh)' }}>
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {tab === 'dashboard'  && <DashboardTab packets={packets} logs={logs} logsRef={logsRef as React.RefObject<HTMLDivElement>} onRun={handleRun} library={library} />}
-          {tab === 'workflows'  && <WorkflowsTab library={library} fetchWorkflows={fetchWorkflows} onRun={handleRun} />}
-          {tab === 'creation'   && <BlueprintTab fetchWorkflows={fetchWorkflows} />}
-        </div>
+      {/* ── TAB OUTLET ROUTER ── */}
+      <div className="flex-1 flex flex-col min-h-0 bg-[#020617] overflow-hidden">
+        {tab === 'dashboard'  && <DashboardTab packets={packets} logs={logs} logsRef={logsRef as React.RefObject<HTMLDivElement>} onRun={handleRun} library={library} />}
+        {tab === 'workflows'  && <WorkflowsTab library={library} fetchWorkflows={fetchWorkflows} onRun={handleRun} />}
+        {tab === 'creation'   && <BlueprintTab fetchWorkflows={fetchWorkflows} />}
       </div>
     </div>
   );
