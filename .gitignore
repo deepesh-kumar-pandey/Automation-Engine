@@ -1,4 +1,5 @@
 Backend/vcpkg/
+.vscode/settings.json
 services/venv/
 Backend/build/
 data/*.log
@@ -12,4 +13,7 @@ __pycache__/
 dist/
 build/
 *.out
-.vscode/
+
+# ── Git hook (managed locally, not shared via remote) ────────────────
+# .git/hooks/pre-commit   ← already inside .git/, never tracked by git
+
